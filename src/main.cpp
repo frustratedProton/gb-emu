@@ -147,7 +147,7 @@ u8 Bus::read(u16 addr) const {
 }
 
 void Bus::write(u16 addr, u8 value) {
-  // Cartridge ROM is read-only for ROM-only cartridges.
+  // cartridge ROM is read-only for ROM-only cartridges
   if (addr <= 0x7FFF) {
     return;
   }
@@ -157,7 +157,7 @@ void Bus::write(u16 addr, u8 value) {
     return;
   }
 
-  // External cartridge RAM is unsupported for now.
+  // external cartridge RAM is unsupported for now
   if (addr <= 0xBFFF) {
     return;
   }
@@ -167,7 +167,7 @@ void Bus::write(u16 addr, u8 value) {
     return;
   }
 
-  // Echo RAM writes modify the corresponding WRAM byte.
+  // Echo RAM writes modify the corresponding WRAM byte
   if (addr <= 0xFDFF) {
     m_wram.at(addr - 0xE000) = value;
     return;
@@ -195,6 +195,89 @@ void Bus::write(u16 addr, u8 value) {
   m_ie = value;
 }
 
+#include <cassert>
+
+void run_bus_tests(const std::vector<u8> &rom) {
+  assert(rom.size() >= 0x8000);
+
+  Bus bus{rom};
+
+  // cartridge ROM can be read
+  assert(bus.read(0x0000) == rom.at(0x0000));
+  assert(bus.read(0x0134) == rom.at(0x0134));
+  assert(bus.read(0x7FFF) == rom.at(0x7FFF));
+
+  // cartridge ROM cannot be modified
+  const u8 original = bus.read(0x0134);
+
+  bus.write(0x0134, static_cast<u8>(original ^ 0xFF));
+
+  assert(bus.read(0x0134) == original);
+
+  // VRAM works
+  bus.write(0x8000, 0x11);
+  bus.write(0x9FFF, 0x12);
+
+  assert(bus.read(0x8000) == 0x11);
+  assert(bus.read(0x9FFF) == 0x12);
+
+  // external cartridge RAM is unsupported for now
+  bus.write(0xA000, 0x21);
+  bus.write(0xBFFF, 0x22);
+
+  assert(bus.read(0xA000) == 0xFF);
+  assert(bus.read(0xBFFF) == 0xFF);
+
+  // WRAM works
+  bus.write(0xC123, 0x42);
+  bus.write(0xDFFF, 0x43);
+
+  assert(bus.read(0xC123) == 0x42);
+  assert(bus.read(0xDFFF) == 0x43);
+
+  // Echo RAM reflects WRAM
+  assert(bus.read(0xE123) == 0x42);
+
+  // Echo RAM writes reflect back into WRAM
+  bus.write(0xE456, 0x73);
+
+  assert(bus.read(0xC456) == 0x73);
+
+  // OAM works
+  bus.write(0xFE00, 0x31);
+  bus.write(0xFE9F, 0x32);
+
+  assert(bus.read(0xFE00) == 0x31);
+  assert(bus.read(0xFE9F) == 0x32);
+
+  // Prohibited memory ignores writes and reads as 0xFF
+  bus.write(0xFEA0, 0x41);
+  bus.write(0xFEFF, 0x42);
+
+  assert(bus.read(0xFEA0) == 0xFF);
+  assert(bus.read(0xFEFF) == 0xFF);
+
+  // I/O storage works for now
+  bus.write(0xFF01, 0x51);
+  bus.write(0xFF7F, 0x52);
+
+  assert(bus.read(0xFF01) == 0x51);
+  assert(bus.read(0xFF7F) == 0x52);
+
+  // HRAM works and does not overlap VRAM
+  bus.write(0xFF80, 0x61);
+  bus.write(0xFFFE, 0x62);
+
+  assert(bus.read(0xFF80) == 0x61);
+  assert(bus.read(0xFFFE) == 0x62);
+  assert(bus.read(0x8000) == 0x11);
+
+  // Interrupt Enable register works
+  bus.write(0xFFFF, 0x1F);
+
+  assert(bus.read(0xFFFF) == 0x1F);
+}
+
 int main(int argc, char *argv[]) {
   try {
     if (argc != 2) {
@@ -203,9 +286,6 @@ int main(int argc, char *argv[]) {
     }
 
     const std::vector<u8> rom = load_rom(argv[1]);
-    Bus bus{rom};
-
-    assert(bus.read(0x134) == 'T');
 
     if (rom.size() >= 2 && rom[0] == 0x50 && rom[1] == 0x4B) {
       throw std::runtime_error{
@@ -217,6 +297,10 @@ int main(int argc, char *argv[]) {
 
     std::cout << "Header checksum: "
               << (valid_header_checksum(rom) ? "OK" : "FAILED") << '\n';
+
+    run_bus_tests(rom);
+    std::cout << "Bus tests passed\n";
+
   } catch (const std::exception &error) {
     std::cerr << "Error: " << error.what() << '\n';
     return 1;
