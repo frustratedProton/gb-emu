@@ -1,18 +1,40 @@
 #include <array>
-#include <cmath>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <fstream>
-#include <iosfwd>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <vector>
-
-#include <cassert>
 
 using u8 = std::uint8_t;
 using u16 = std::uint16_t;
+using u32 = std::uint32_t;
+
+enum class Flag : u8 {
+  Z = 0x80,
+  N = 0x40,
+  H = 0x20,
+  C = 0x10,
+};
+
+struct Register {
+  u8 a{};
+  u8 f{};
+  u8 b{};
+  u8 c{};
+  u8 d{};
+  u8 e{};
+  u8 h{};
+  u8 l{};
+
+  u16 sp{};
+  u16 pc{};
+};
 
 std::vector<u8> load_rom(const std::string &path) {
   std::ifstream file{path, std::ios::binary | std::ios::ate};
@@ -195,8 +217,6 @@ void Bus::write(u16 addr, u8 value) {
   m_ie = value;
 }
 
-#include <cassert>
-
 void run_bus_tests(const std::vector<u8> &rom) {
   assert(rom.size() >= 0x8000);
 
@@ -278,6 +298,259 @@ void run_bus_tests(const std::vector<u8> &rom) {
   assert(bus.read(0xFFFF) == 0x1F);
 }
 
+class Cpu {
+public:
+  explicit Cpu(Bus &bus) : m_bus(bus) { reset_post_boot_dmg(); }
+
+  void reset_post_boot_dmg();
+
+  [[nodiscard]] u32 step();
+
+  // Registers pairs
+  [[nodiscard]] u16 af() const;
+  [[nodiscard]] u16 bc() const;
+  [[nodiscard]] u16 de() const;
+  [[nodiscard]] u16 hl() const;
+
+  void set_af(u16 value);
+  void set_bc(u16 value);
+  void set_de(u16 value);
+  void set_hl(u16 value);
+
+  // flags
+  [[nodiscard]] bool get_flag(Flag flag) const;
+  void set_flag(Flag flag, bool value);
+
+  [[nodiscard]] const Register &registers() const { return m_registers; }
+
+  void set_pc(u16 value) { m_registers.pc = value; }
+
+private:
+  [[nodiscard]] u8 fetch8();
+  [[nodiscard]] u16 fetch16();
+
+  Bus &m_bus;
+  Register m_registers{};
+
+  bool m_ime{};
+  bool m_halted{};
+};
+
+void Cpu::reset_post_boot_dmg() {
+  set_af(0x01B0);
+  set_bc(0x0013);
+  set_de(0x00D8);
+  set_hl(0x014D);
+
+  m_registers.sp = 0xFFFE;
+  m_registers.pc = 0x0100;
+
+  m_ime = false;
+  m_halted = false;
+}
+
+u16 Cpu::af() const {
+  return static_cast<u16>((static_cast<u16>(m_registers.a) << 8) |
+                          m_registers.f);
+}
+
+u16 Cpu::bc() const {
+  return static_cast<u16>((static_cast<u16>(m_registers.b) << 8) |
+                          m_registers.c);
+}
+
+u16 Cpu::de() const {
+  return static_cast<u16>((static_cast<u16>(m_registers.d) << 8) |
+                          m_registers.e);
+}
+
+u16 Cpu::hl() const {
+  return static_cast<u16>((static_cast<u16>(m_registers.h) << 8) |
+                          m_registers.l);
+}
+
+void Cpu::set_af(u16 value) {
+  m_registers.a = static_cast<u8>(value >> 8);
+  m_registers.f =
+      static_cast<u8>(value & 0x00F0); // lower 4 bits must always be zero
+}
+
+void Cpu::set_bc(u16 value) {
+  m_registers.b = static_cast<u8>(value >> 8);
+  m_registers.c = static_cast<u8>(value & 0x00FF);
+}
+
+void Cpu::set_de(u16 value) {
+  m_registers.d = static_cast<u8>(value >> 8);
+  m_registers.e = static_cast<u8>(value & 0x00FF);
+}
+
+void Cpu::set_hl(u16 value) {
+  m_registers.h = static_cast<u8>(value >> 8);
+  m_registers.l = static_cast<u8>(value & 0x00FF);
+}
+
+bool Cpu::get_flag(Flag flag) const {
+  const u8 mask = static_cast<u8>(flag);
+  return (m_registers.f & mask) != 0;
+}
+
+void Cpu::set_flag(Flag flag, bool value) {
+  const u8 mask = static_cast<u8>(flag);
+
+  if (value) {
+    m_registers.f = static_cast<u8>(m_registers.f | mask);
+  } else {
+    m_registers.f = static_cast<u8>(m_registers.f & static_cast<u8>(~mask));
+  }
+
+  m_registers.f = static_cast<u8>(m_registers.f & 0xF0);
+}
+
+u8 Cpu::fetch8() {
+  const u8 value = m_bus.read(m_registers.pc);
+  m_registers.pc = static_cast<u16>(m_registers.pc + 1);
+  return value;
+}
+
+u16 Cpu::fetch16() {
+  const u8 low = fetch8();
+  const u8 high = fetch8();
+
+  return static_cast<u16>((static_cast<u16>(high) << 8) | low);
+}
+
+u32 Cpu::step() {
+  if (m_halted) {
+    return 4; // temp behaviour
+  }
+
+  const u16 instruction_address = m_registers.pc;
+  const u8 opcode = fetch8();
+
+  switch (opcode) {
+  // NOP
+  case 0x00:
+    return 4;
+
+  // JP a16
+  // am i supposed to switch case ALL these opcodes????
+  case 0xC3: {
+    const u16 destination = fetch16();
+    m_registers.pc = destination;
+    return 16;
+  }
+
+  default: {
+    std::ostringstream message;
+
+    message << std::uppercase << std::hex << std::setfill('0')
+            << "Unimplemented opcode 0x" << std::setw(2)
+            << static_cast<unsigned>(opcode) << " at PC=0x" << std::setw(4)
+            << static_cast<unsigned>(instruction_address) << " AF=0x"
+            << std::setw(4) << static_cast<unsigned>(af()) << " BC=0x"
+            << std::setw(4) << static_cast<unsigned>(bc()) << " DE=0x"
+            << std::setw(4) << static_cast<unsigned>(de()) << " HL=0x"
+            << std::setw(4) << static_cast<unsigned>(hl()) << " SP=0x"
+            << std::setw(4) << static_cast<unsigned>(m_registers.sp);
+
+    throw std::runtime_error{message.str()};
+  }
+  }
+}
+
+void run_cpu_tests(const std::vector<u8> &rom) {
+  Bus bus{rom};
+  Cpu cpu{bus};
+
+  // Post-boot state
+  assert(cpu.af() == 0x01B0);
+  assert(cpu.bc() == 0x0013);
+  assert(cpu.de() == 0x00D8);
+  assert(cpu.hl() == 0x014D);
+  assert(cpu.registers().sp == 0xFFFE);
+  assert(cpu.registers().pc == 0x0100);
+
+  // AF masking
+  cpu.set_af(0x12FF);
+
+  assert(cpu.registers().a == 0x12);
+  assert(cpu.registers().f == 0xF0);
+  assert(cpu.af() == 0x12F0);
+
+  // Other register pairs
+  cpu.set_bc(0x1234);
+  assert(cpu.registers().b == 0x12);
+  assert(cpu.registers().c == 0x34);
+  assert(cpu.bc() == 0x1234);
+
+  cpu.set_de(0x5678);
+  assert(cpu.registers().d == 0x56);
+  assert(cpu.registers().e == 0x78);
+  assert(cpu.de() == 0x5678);
+
+  cpu.set_hl(0x9ABC);
+  assert(cpu.registers().h == 0x9A);
+  assert(cpu.registers().l == 0xBC);
+  assert(cpu.hl() == 0x9ABC);
+
+  // Flag helpers
+  cpu.set_af(0x0000);
+
+  cpu.set_flag(Flag::Z, true);
+  assert(cpu.get_flag(Flag::Z));
+  assert(cpu.registers().f == 0x80);
+
+  cpu.set_flag(Flag::C, true);
+  assert(cpu.get_flag(Flag::C));
+  assert(cpu.registers().f == 0x90);
+
+  cpu.set_flag(Flag::Z, false);
+  assert(!cpu.get_flag(Flag::Z));
+  assert(cpu.get_flag(Flag::C));
+  assert(cpu.registers().f == 0x10);
+
+  // The lower nibble of F remains zero
+  assert((cpu.registers().f & 0x0F) == 0);
+
+  // Reset before instruction tests
+  cpu.reset_post_boot_dmg();
+
+  // NOP test
+  bus.write(0xC000, 0x00);
+  cpu.set_pc(0xC000);
+
+  const u16 af_before = cpu.af();
+  const u16 bc_before = cpu.bc();
+  const u16 de_before = cpu.de();
+  const u16 hl_before = cpu.hl();
+  const u16 sp_before = cpu.registers().sp;
+
+  const u32 nop_cycles = cpu.step();
+
+  assert(nop_cycles == 4);
+  assert(cpu.registers().pc == 0xC001);
+  assert(cpu.af() == af_before);
+  assert(cpu.bc() == bc_before);
+  assert(cpu.de() == de_before);
+  assert(cpu.hl() == hl_before);
+  assert(cpu.registers().sp == sp_before);
+
+  // JP a16 and little-endian fetch test
+  bus.write(0xC000, 0xC3);
+  bus.write(0xC001, 0x34);
+  bus.write(0xC002, 0x12);
+
+  cpu.set_pc(0xC000);
+
+  const u32 jp_cycles = cpu.step();
+
+  assert(jp_cycles == 16);
+  assert(cpu.registers().pc == 0x1234);
+
+  std::cout << "CPU tests passed\n";
+}
+
 int main(int argc, char *argv[]) {
   try {
     if (argc != 2) {
@@ -299,6 +572,8 @@ int main(int argc, char *argv[]) {
               << (valid_header_checksum(rom) ? "OK" : "FAILED") << '\n';
 
     run_bus_tests(rom);
+    run_cpu_tests(rom);
+
     std::cout << "Bus tests passed\n";
 
   } catch (const std::exception &error) {
