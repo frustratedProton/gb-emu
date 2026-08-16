@@ -326,6 +326,7 @@ public:
   void set_pc(u16 value) { m_registers.pc = value; }
 
 private:
+  void xor_a(u8 value);
   [[nodiscard]] u8 fetch8();
   [[nodiscard]] u16 fetch16();
 
@@ -407,6 +408,18 @@ void Cpu::set_flag(Flag flag, bool value) {
   m_registers.f = static_cast<u8>(m_registers.f & 0xF0);
 }
 
+void Cpu::xor_a(u8 value) {
+  m_registers.a = static_cast<u8>(m_registers.a ^ value);
+
+  // xor clears N, H and C flags
+  // and sets Z only when result is zero
+  m_registers.f = 0x00;
+
+  if (m_registers.a == 0) {
+    m_registers.f = static_cast<u8>(Flag::Z);
+  }
+}
+
 u8 Cpu::fetch8() {
   const u8 value = m_bus.read(m_registers.pc);
   m_registers.pc = static_cast<u16>(m_registers.pc + 1);
@@ -441,6 +454,12 @@ u32 Cpu::step() {
     return 16;
   }
 
+  // XOR A,A
+  case 0xAF: {
+    xor_a(m_registers.a);
+    return 4;
+  }
+
   default: {
     std::ostringstream message;
 
@@ -459,9 +478,40 @@ u32 Cpu::step() {
   }
 }
 
+void run_cpu_smoke_test(const std::vector<u8> &rom,
+                        std::size_t maximum_instructions) {
+  Bus bus{rom};
+  Cpu cpu{bus};
+
+  std::uint64_t total_cycles{};
+
+  for (std::size_t instruction = 0; instruction < maximum_instructions;
+       ++instruction) {
+    const u16 old_pc = cpu.registers().pc;
+    const u8 opcode = bus.read(old_pc);
+
+    std::cout << '[' << std::dec << instruction << "] " << std::uppercase
+              << std::hex << std::setfill('0') << "PC=0x" << std::setw(4)
+              << static_cast<unsigned>(old_pc) << " OP=0x" << std::setw(2)
+              << static_cast<unsigned>(opcode) << std::dec << std::endl;
+
+    const u32 cycles = cpu.step();
+    total_cycles += cycles;
+
+    std::cout << "    new PC=0x" << std::uppercase << std::hex
+              << std::setfill('0') << std::setw(4)
+              << static_cast<unsigned>(cpu.registers().pc) << std::dec
+              << " cycles=" << cycles << " total=" << total_cycles << '\n';
+  }
+
+  std::cout << "Stopped after instruction limit\n";
+}
+
 void run_cpu_tests(const std::vector<u8> &rom) {
   Bus bus{rom};
   Cpu cpu{bus};
+
+  run_cpu_smoke_test(rom, 10);
 
   // Post-boot state
   assert(cpu.af() == 0x01B0);
@@ -547,6 +597,24 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   assert(jp_cycles == 16);
   assert(cpu.registers().pc == 0x1234);
+
+  // XOR A,A
+  bus.write(0xC000, 0xAF);
+
+  cpu.set_af(0x5AF0);
+  cpu.set_pc(0xC000);
+
+  const u32 xor_cycles = cpu.step();
+
+  assert(xor_cycles == 4);
+  assert(cpu.registers().pc == 0xC001);
+  assert(cpu.registers().a == 0x00);
+  assert(cpu.registers().f == 0x80);
+
+  assert(cpu.get_flag(Flag::Z));
+  assert(!cpu.get_flag(Flag::N));
+  assert(!cpu.get_flag(Flag::H));
+  assert(!cpu.get_flag(Flag::C));
 
   std::cout << "CPU tests passed\n";
 }
