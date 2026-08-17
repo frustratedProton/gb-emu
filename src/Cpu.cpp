@@ -1,4 +1,6 @@
 #include "Cpu.hpp"
+#include "Bus.hpp"
+#include "types.hpp"
 #include <iomanip>
 #include <sstream>
 
@@ -123,6 +125,116 @@ u32 Cpu::step() {
   case 0xAF: {
     xor_a(m_registers.a);
     return 4;
+  }
+
+  // LD HL
+  case 0x21: {
+    const u16 value = fetch16();
+    set_hl(value);
+    return 12;
+  }
+
+  // LD C
+  case 0x0E: {
+    const u8 value = fetch8();
+    m_registers.c = value;
+    return 8;
+  }
+
+  // LD B
+  case 0x06: {
+    const u8 value = fetch8();
+    m_registers.b = value;
+    return 8;
+  }
+
+  // LD (HL-), A
+  case 0x32: {
+    const u16 addr = hl();
+    m_bus.write(addr, m_registers.a);
+    set_hl(addr - 1);
+    return 8;
+  }
+
+  // DEC B
+  case 0x05: {
+    const u8 before = m_registers.b;
+    m_registers.b = static_cast<u8>(before - 1);
+
+    set_flag(Flag::Z, m_registers.b == 0);
+    set_flag(Flag::N, true);
+    set_flag(Flag::H, (before & 0x0F) == 0);
+
+    return 4;
+  }
+
+  // JR NZ, i8
+  case 0x20: {
+    const i8 offset = static_cast<i8>(fetch8());
+
+    if (!get_flag(Flag::Z)) {
+      m_registers.pc += offset;
+      return 12;
+    }
+
+    return 8;
+  }
+
+  // DEC C
+  case 0x0D: {
+    const u8 before = m_registers.c;
+    m_registers.b = static_cast<u8>(before - 1);
+
+    set_flag(Flag::Z, m_registers.c == 0);
+    set_flag(Flag::N, true);
+    set_flag(Flag::H, (before & 0x0F) == 0);
+
+    return 4;
+  }
+
+  // LD A
+  case 0x3E: {
+    const u8 value = fetch8();
+    m_registers.a = value;
+    return 8;
+  }
+
+  // DI
+  case 0xF3: {
+    m_ime = false;
+    return 4;
+  }
+
+  // LD (FF00+u8),A
+  case 0xE0: {
+    const u8 offset = fetch8();
+    const u16 addr = 0xFF00 + offset;
+
+    m_bus.write(addr, m_registers.a);
+
+    return 12;
+  }
+
+  // LD A,(FF00+u8)
+  case 0xF0: {
+    const u8 offset = fetch8();
+    m_registers.a = m_bus.read(0xFF00 + offset);
+
+    return 12;
+  }
+
+  // CP A,u8
+  case 0xFE: {
+    const u8 value = fetch8();
+    const u8 a = m_registers.a;
+    const u8 res = a - value;
+
+    set_flag(Flag::Z, res == 0);
+    set_flag(Flag::N, true);
+    set_flag(Flag::H, (a & 0x0F) < (value & 0x0F));
+    set_flag(Flag::C, (a < value));
+
+    return 8;
   }
 
   default: {
