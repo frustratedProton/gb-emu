@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
     std::cout << "Header checksum: "
               << (valid_header_checksum(rom) ? "OK" : "FAILED") << '\n';
 
-    run_cpu_trace(rom, 50000);
+    run_cpu_trace(rom, 1000000);
   } catch (const std::exception &error) {
     std::cerr << "Error: " << error.what() << '\n';
     return 1;
