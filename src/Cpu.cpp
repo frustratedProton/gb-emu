@@ -183,7 +183,7 @@ u32 Cpu::step() {
   // DEC C
   case 0x0D: {
     const u8 before = m_registers.c;
-    m_registers.b = static_cast<u8>(before - 1);
+    m_registers.c = static_cast<u8>(before - 1);
 
     set_flag(Flag::Z, m_registers.c == 0);
     set_flag(Flag::N, true);

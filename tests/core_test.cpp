@@ -269,7 +269,183 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   assert(cpu.registers().a == 0x42);
   assert(cpu.registers().f == 0xF0);
 
-  
+  // LD (HL-)
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x32);
+
+  cpu.set_hl(0xC100);
+  cpu.set_af(0x5AB0);
+  cpu.set_pc(0xC000);
+
+  const u32 ld_hld_a_cycles = cpu.step();
+
+  assert(ld_hld_a_cycles == 8);
+  assert(cpu.registers().pc == 0xC001);
+  assert(bus.read(0xC100) == 0x5A);
+  assert(cpu.hl() == 0xC0FF);
+  assert(cpu.registers().a == 0x5A);
+  assert(cpu.registers().f == 0xB0);
+
+  // DEC B
+  // Z = 1, N = 1, H = 0, C remains 1
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x05);
+
+  cpu.set_bc(0x0177);
+  cpu.set_af(0x0010);
+  cpu.set_pc(0xC000);
+
+  const u32 dec_b_zero_cycles = cpu.step();
+
+  assert(dec_b_zero_cycles == 4);
+  assert(cpu.registers().pc == 0xC001);
+  assert(cpu.registers().b == 0x00);
+  assert(cpu.registers().c == 0x77);
+  assert(cpu.registers().f == 0xD0); // Z + N + C
+
+  // DEC B
+  // Z=0, N = 1, H = 1, C remains 0
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x05);
+
+  cpu.set_bc(0x1077);
+  cpu.set_af(0x0000);
+  cpu.set_pc(0xC000);
+
+  const u32 dec_b_half_borrow_cycles = cpu.step();
+
+  assert(dec_b_half_borrow_cycles == 4);
+  assert(cpu.registers().b == 0x0F);
+  assert(cpu.registers().c == 0x77);
+  assert(cpu.registers().f == 0x60); // N + H
+
+  // DEC C
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x0D);
+
+  cpu.set_bc(0xAA01);
+  cpu.set_af(0x0010);
+  cpu.set_pc(0xC000);
+
+  const u32 dec_c_cycles = cpu.step();
+
+  assert(dec_c_cycles == 4);
+  assert(cpu.registers().pc == 0xC001);
+  assert(cpu.registers().b == 0xAA);
+  assert(cpu.registers().c == 0x00);
+  assert(cpu.registers().f == 0xD0);
+
+  // JR NZ, +2 branch taken
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x20);
+  bus.write(0xC001, 0x02);
+
+  cpu.set_af(0x0010);
+  cpu.set_pc(0xC000);
+
+  const u32 jr_taken_cycles = cpu.step();
+
+  assert(jr_taken_cycles == 12);
+  assert(cpu.registers().pc == 0xC004);
+  assert(cpu.registers().f == 0x10);
+
+  // JR NZ, -2 -ve signed offset
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC010, 0x20);
+  bus.write(0xC011, 0xFE); // -2 as signed i8
+
+  cpu.set_af(0x0000); // Z=0
+  cpu.set_pc(0xC010);
+
+  const u32 jr_negative_cycles = cpu.step();
+
+  assert(jr_negative_cycles == 12);
+  assert(cpu.registers().pc == 0xC010);
+  assert(cpu.registers().f == 0x00);
+
+  // JR NZ branch not takne, Z = 1
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC020, 0x20);
+  bus.write(0xC021, 0x7F);
+
+  cpu.set_af(0x0080); // Z=1
+  cpu.set_pc(0xC020);
+
+  const u32 jr_not_taken_cycles = cpu.step();
+
+  assert(jr_not_taken_cycles == 8);
+  assert(cpu.registers().pc == 0xC022);
+  assert(cpu.registers().f == 0x80);
+
+  // LDH A
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0xF0);
+  bus.write(0xC001, 0x43);
+  bus.write(0xFF43, 0x7B);
+
+  cpu.set_af(0x00B0);
+  cpu.set_pc(0xC000);
+
+  const u32 ldh_read_cycles = cpu.step();
+
+  assert(ldh_read_cycles == 12);
+  assert(cpu.registers().pc == 0xC002);
+  assert(cpu.registers().a == 0x7B);
+  assert(cpu.registers().f == 0xB0);
+
+  // CP A, equal
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0xFE);
+  bus.write(0xC001, 0x42);
+
+  cpu.set_af(0x4200);
+  cpu.set_pc(0xC000);
+
+  const u32 cp_equal_cycles = cpu.step();
+
+  assert(cp_equal_cycles == 8);
+  assert(cpu.registers().pc == 0xC002);
+  assert(cpu.registers().a == 0x42);
+  assert(cpu.registers().f == 0xC0); // Z + N
+
+  // CP A half borrow
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0xFE);
+  bus.write(0xC001, 0x01);
+
+  cpu.set_af(0x10F0);
+  cpu.set_pc(0xC000);
+
+  const u32 cp_half_borrow_cycles = cpu.step();
+
+  assert(cp_half_borrow_cycles == 8);
+  assert(cpu.registers().a == 0x10);
+  assert(cpu.registers().f == 0x60); // N + H
+
+  // CP A full borrow
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0xFE);
+  bus.write(0xC001, 0x01);
+
+  cpu.set_af(0x00F0);
+  cpu.set_pc(0xC000);
+
+  const u32 cp_borrow_cycles = cpu.step();
+
+  assert(cp_borrow_cycles == 8);
+  assert(cpu.registers().a == 0x00);
+  assert(cpu.registers().f == 0x70); // N + H + C
 }
 
 std::vector<u8> create_test_rom() {
