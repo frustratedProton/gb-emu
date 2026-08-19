@@ -53,8 +53,14 @@ public:
 
 private:
   void xor_a(u8 value);
+  
   [[nodiscard]] u8 fetch8();
   [[nodiscard]] u16 fetch16();
+
+  [[nodiscard]] u8 read_r8(u8 code) const;
+  void write_r8(u8 code, u8 value);
+
+  [[nodiscard]] u8 dec8(u8 value);
 
   Bus &m_bus;
   Registers m_registers{};

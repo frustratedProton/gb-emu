@@ -3,6 +3,7 @@
 #include "types.hpp"
 #include <iomanip>
 #include <sstream>
+#include <stdexcept>
 
 void Cpu::reset_post_boot_dmg() {
   set_af(0x01B0);
@@ -100,6 +101,94 @@ u16 Cpu::fetch16() {
   return static_cast<u16>((static_cast<u16>(high) << 8) | low);
 }
 
+// 0 → B
+// 1 → C
+// 2 → D
+// 3 → E
+// 4 → H
+// 5 → L
+// 6 → memory at HL
+// 7 → A
+u8 Cpu::read_r8(u8 code) const {
+  switch (code) {
+  case 0:
+    return m_registers.b;
+
+  case 1:
+    return m_registers.c;
+
+  case 2:
+    return m_registers.d;
+
+  case 3:
+    return m_registers.e;
+
+  case 4:
+    return m_registers.h;
+
+  case 5:
+    return m_registers.l;
+
+  case 6:
+    return m_bus.read(hl());
+
+  case 7:
+    return m_registers.a;
+
+  default:
+    throw std::logic_error{"Invalid 8-bit register code"};
+  }
+}
+
+void Cpu::write_r8(u8 code, u8 value) {
+  switch (code) {
+  case 0:
+    m_registers.b = value;
+    return;
+
+  case 1:
+    m_registers.c = value;
+    return;
+
+  case 2:
+    m_registers.d = value;
+    return;
+
+  case 3:
+    m_registers.e = value;
+    return;
+
+  case 4:
+    m_registers.h = value;
+    return;
+
+  case 5:
+    m_registers.l = value;
+    return;
+
+  case 6:
+    m_bus.write(hl(), value);
+    return;
+
+  case 7:
+    m_registers.a = value;
+    return;
+
+  default:
+    throw std::logic_error{"Invalid 8-bit register code"};
+  }
+}
+
+u8 Cpu::dec8(u8 value) {
+  const u8 res = static_cast<u8>(value - 1);
+
+  set_flag(Flag::Z, res == 0);
+  set_flag(Flag::N, true);
+  set_flag(Flag::H, (value & 0x0F) == 0);
+
+  return res;
+}
+
 u32 Cpu::step() {
   if (m_halted) {
     return 4; // temp behaviour
@@ -107,6 +196,30 @@ u32 Cpu::step() {
 
   const u16 instruction_address = m_registers.pc;
   const u8 opcode = fetch8();
+
+  // LD r8, d8
+  if ((opcode & 0xC7) == 0x06) {
+    const u8 dest = static_cast<u8>((opcode >> 3) & 0x07);
+    const u8 value = fetch8();
+
+    write_r8(dest, value);
+
+    // LD (HL),d8 requires a memory access and takes longer
+    return dest == 6 ? 12 : 8;
+  }
+
+  // DEC r8
+  if ((opcode & 0xC7) == 0x05) {
+    const u8 dest = static_cast<u8>((opcode >> 3) & 0x07);
+
+    const u8 value = read_r8(dest);
+    const u8 result = dec8(value);
+
+    write_r8(dest, result);
+
+    // DEC (HL) requires a memory read and write
+    return dest == 6 ? 12 : 4;
+  }
 
   switch (opcode) {
   // NOP
@@ -134,38 +247,12 @@ u32 Cpu::step() {
     return 12;
   }
 
-  // LD C
-  case 0x0E: {
-    const u8 value = fetch8();
-    m_registers.c = value;
-    return 8;
-  }
-
-  // LD B
-  case 0x06: {
-    const u8 value = fetch8();
-    m_registers.b = value;
-    return 8;
-  }
-
   // LD (HL-), A
   case 0x32: {
     const u16 addr = hl();
     m_bus.write(addr, m_registers.a);
     set_hl(addr - 1);
     return 8;
-  }
-
-  // DEC B
-  case 0x05: {
-    const u8 before = m_registers.b;
-    m_registers.b = static_cast<u8>(before - 1);
-
-    set_flag(Flag::Z, m_registers.b == 0);
-    set_flag(Flag::N, true);
-    set_flag(Flag::H, (before & 0x0F) == 0);
-
-    return 4;
   }
 
   // JR NZ, i8
@@ -177,25 +264,6 @@ u32 Cpu::step() {
       return 12;
     }
 
-    return 8;
-  }
-
-  // DEC C
-  case 0x0D: {
-    const u8 before = m_registers.c;
-    m_registers.c = static_cast<u8>(before - 1);
-
-    set_flag(Flag::Z, m_registers.c == 0);
-    set_flag(Flag::N, true);
-    set_flag(Flag::H, (before & 0x0F) == 0);
-
-    return 4;
-  }
-
-  // LD A
-  case 0x3E: {
-    const u8 value = fetch8();
-    m_registers.a = value;
     return 8;
   }
 
