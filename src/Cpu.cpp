@@ -179,6 +179,33 @@ void Cpu::write_r8(u8 code, u8 value) {
   }
 }
 
+void Cpu::write_r16(u8 code, u16 value) {
+  // 0 → BC
+  // 1 → DE
+  // 2 → HL
+  // 3 → SP
+  switch (code) {
+  case 0:
+    set_bc(value);
+    return;
+
+  case 1:
+    set_de(value);
+    return;
+
+  case 2:
+    set_hl(value);
+    return;
+
+  case 3:
+    m_registers.sp = value;
+    return;
+
+  default:
+    throw std::logic_error{"Invalid 16-bit register code"};
+  }
+}
+
 u8 Cpu::dec8(u8 value) {
   const u8 res = static_cast<u8>(value - 1);
 
@@ -186,6 +213,14 @@ u8 Cpu::dec8(u8 value) {
   set_flag(Flag::N, true);
   set_flag(Flag::H, (value & 0x0F) == 0);
 
+  return res;
+}
+
+u8 Cpu::inc8(u8 value) {
+  const u8 res = static_cast<u8>(value + 1);
+  set_flag(Flag::Z, res == 0);
+  set_flag(Flag::N, false);
+  set_flag(Flag::H, (value & 0x0F) == 0x0F);
   return res;
 }
 
@@ -221,6 +256,26 @@ u32 Cpu::step() {
     return dest == 6 ? 12 : 4;
   }
 
+  // LD r16, d16
+  if ((opcode & 0xCF) == 0x01) {
+    const u8 dest = static_cast<u8>((opcode >> 4) & 0x03);
+
+    const u16 value = fetch16();
+
+    write_r16(dest, value);
+    return 12;
+  }
+
+  // INC r8
+  if ((opcode & 0xC7) == 0x04) {
+    const u8 dest = static_cast<u8>((opcode >> 3) & 0x07);
+    const u8 value = read_r8(dest);
+    const u8 res = inc8(value);
+
+    write_r16(dest, res);
+    return dest == 6 ? 12 : 4;
+  }
+
   switch (opcode) {
   // NOP
   case 0x00:
@@ -238,13 +293,6 @@ u32 Cpu::step() {
   case 0xAF: {
     xor_a(m_registers.a);
     return 4;
-  }
-
-  // LD HL
-  case 0x21: {
-    const u16 value = fetch16();
-    set_hl(value);
-    return 12;
   }
 
   // LD (HL-), A

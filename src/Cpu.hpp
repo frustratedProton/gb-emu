@@ -50,15 +50,19 @@ public:
   [[nodiscard]] const Registers &registers() const { return m_registers; }
 
   void set_pc(u16 value) { m_registers.pc = value; }
+  void set_sp(u16 value) { m_registers.sp = value; }
 
 private:
   void xor_a(u8 value);
-  
+
   [[nodiscard]] u8 fetch8();
   [[nodiscard]] u16 fetch16();
 
   [[nodiscard]] u8 read_r8(u8 code) const;
   void write_r8(u8 code, u8 value);
+  void write_r16(u8 code, u16 value);
+
+  u8 inc8(u8 value);
 
   [[nodiscard]] u8 dec8(u8 value);
 
