@@ -335,6 +335,16 @@ u32 Cpu::step() {
     return 8;
   }
 
+  // XOR A, r8
+  if (opcode >= 0xA8 && opcode <= 0xAF) {
+    const u8 src = static_cast<u8>(opcode & 0x07);
+    const u8 value = read_r8(src);
+
+    xor_a(value);
+
+    return src == 6 ? 8 : 4;
+  }
+
   switch (opcode) {
   // NOP
   case 0x00:
@@ -348,11 +358,6 @@ u32 Cpu::step() {
     return 16;
   }
 
-  // XOR A,A
-  case 0xAF: {
-    xor_a(m_registers.a);
-    return 4;
-  }
 
   // LD (HL-), A
   case 0x32: {

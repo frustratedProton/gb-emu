@@ -705,6 +705,37 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   assert(cpu.registers().sp == 0xFFFF);
   assert(cpu.af() == 0x5AF0);
   assert(cpu.registers().pc == 0xC001);
+
+  // XOR A,B
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0xA8);
+
+  cpu.set_af(0xF0F0);
+  cpu.set_bc(0x0F00);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0xFF);
+  assert(cpu.registers().b == 0x0F);
+  assert(cpu.registers().f == 0x00);
+  assert(cpu.registers().pc == 0xC001);
+
+  // XOR A,(HL)
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0xAE);
+  bus.write(0xC100, 0x55);
+
+  cpu.set_hl(0xC100);
+  cpu.set_af(0x55F0);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.registers().a == 0x00);
+  assert(cpu.registers().f == 0x80);
+  assert(cpu.hl() == 0xC100);
+  assert(cpu.registers().pc == 0xC001);
 }
 
 std::vector<u8> create_test_rom() {
