@@ -59,6 +59,7 @@ private:
   [[nodiscard]] u16 fetch16();
 
   [[nodiscard]] u8 read_r8(u8 code) const;
+  [[nodiscard]] u16 read_r16(u16 code) const;
   void write_r8(u8 code, u8 value);
   void write_r16(u8 code, u16 value);
 

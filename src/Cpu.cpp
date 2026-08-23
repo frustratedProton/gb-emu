@@ -140,6 +140,25 @@ u8 Cpu::read_r8(u8 code) const {
   }
 }
 
+u16 Cpu::read_r16(u16 code) const {
+  switch (code) {
+  case 0:
+    return bc();
+
+  case 1:
+    return de();
+
+  case 2:
+    return hl();
+
+  case 3:
+    return m_registers.sp;
+
+  default:
+    throw std::logic_error{"Invalid 16-bit register code"};
+  }
+}
+
 void Cpu::write_r8(u8 code, u8 value) {
   switch (code) {
   case 0:
@@ -269,11 +288,51 @@ u32 Cpu::step() {
   // INC r8
   if ((opcode & 0xC7) == 0x04) {
     const u8 dest = static_cast<u8>((opcode >> 3) & 0x07);
+
     const u8 value = read_r8(dest);
-    const u8 res = inc8(value);
+    const u8 result = inc8(value);
+
+    write_r8(dest, result);
+
+    return dest == 6 ? 12 : 4;
+  }
+
+  // LD r8, r8
+  // 0x76 opcode is for halt
+  if (opcode >= 0x40 && opcode <= 0x7F && opcode != 0x76) {
+    const u8 dest = static_cast<u8>((opcode >> 3) & 0x07);
+    const u8 src = static_cast<u8>(opcode & 0x07);
+
+    const u8 value = read_r8(src);
+    write_r8(dest, value);
+
+    if (src == 6 || dest == 6)
+      return 8;
+
+    return 4;
+  }
+
+  // INC r16
+  if ((opcode & 0xCF) == 0x03) {
+    const u8 dest = static_cast<u8>((opcode >> 4) & 0x03);
+
+    const u16 value = read_r16(dest);
+    const u16 res = static_cast<u16>(value + 1);
 
     write_r16(dest, res);
-    return dest == 6 ? 12 : 4;
+
+    return 8;
+  }
+
+  // DEC r16
+  if ((opcode & 0xCF) == 0x0B) {
+    const u8 dest = static_cast<u8>((opcode >> 4) & 0x03);
+    const u16 value = read_r16(dest);
+    const u16 res = static_cast<u16>(value - 1);
+
+    write_r16(dest, res);
+
+    return 8;
   }
 
   switch (opcode) {

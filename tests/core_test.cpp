@@ -492,7 +492,7 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   bus.write(0xC000, 0x04);
 
-  cpu.set_bc(0x1000);
+  cpu.set_bc(0x0100);
   cpu.set_af(0x0000);
   cpu.set_pc(0xC000);
 
@@ -500,6 +500,8 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   assert(inc_b_cycles == 4);
   assert(cpu.registers().b == 0x02);
+  assert(cpu.registers().c == 0x00);
+  assert(cpu.registers().f == 0x00);
   assert(cpu.registers().pc == 0xC001);
 
   // INC C
@@ -559,13 +561,150 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   // INC A
   cpu.reset_post_boot_dmg();
+
   bus.write(0xC000, 0x3C);
 
   cpu.set_af(0x0100);
   cpu.set_pc(0xC000);
 
   assert(cpu.step() == 4);
+  assert(cpu.registers().pc == 0xC001);
   assert(cpu.registers().a == 0x02);
+  assert(cpu.registers().f == 0x00);
+
+  // LD B,C
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x41);
+
+  cpu.set_bc(0x1234);
+  cpu.set_af(0x78F0);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().b == 0x34);
+  assert(cpu.registers().c == 0x34);
+  assert(cpu.registers().pc == 0xC001);
+  assert(cpu.registers().a == 0x78);
+  assert(cpu.registers().f == 0xF0);
+
+  // LD L,A
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x6F);
+
+  cpu.set_hl(0x1200);
+  cpu.set_af(0x56F0);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().l == 0x56);
+  assert(cpu.registers().a == 0x56);
+  assert(cpu.registers().f == 0xF0);
+  assert(cpu.registers().pc == 0xC001);
+
+  // LD A,(HL)
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x7E);
+
+  cpu.set_hl(0xC100);
+  bus.write(0xC100, 0x42);
+
+  cpu.set_af(0x00F0);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.registers().a == 0x42);
+  assert(cpu.registers().f == 0xF0);
+  assert(cpu.registers().pc == 0xC001);
+
+  // LD (HL),A
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x77);
+
+  cpu.set_hl(0xC100);
+  cpu.set_af(0x42F0);
+  cpu.set_pc(0xC000);
+
+  bus.write(0xC100, 0x00);
+
+  assert(cpu.step() == 8);
+  assert(bus.read(0xC100) == 0x42);
+  assert(cpu.registers().f == 0xF0);
+  assert(cpu.registers().pc == 0xC001);
+
+  // 0x76 = HALT
+  // FOR LATER, havent implemented halted yet
+  //   cpu.reset_post_boot_dmg();
+
+  //   bus.write(0xC000, 0x76);
+
+  //   cpu.set_hl(0xC100);
+  //   bus.write(0xC100, 0x42);
+  //   cpu.set_pc(0xC000);
+
+  //   const u32 halt_cycles = cpu.step();
+
+  //   assert(halt_cycles == 4);
+  //   assert(cpu.registers().pc == 0xC001);
+
+  //   assert(bus.read(0xC100) == 0x42);
+
+  // LD B, B
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x40);
+
+  cpu.set_bc(0x1200);
+  cpu.set_af(0x00F0);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().b == 0x12);
+  assert(cpu.registers().f == 0xF0);
+  assert(cpu.registers().pc == 0xC001);
+
+  // LD A,A
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x7F);
+
+  cpu.set_af(0x42F0);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x42);
+  assert(cpu.registers().f == 0xF0);
+  assert(cpu.registers().pc == 0xC001);
+
+  // INC BC
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x03);
+
+  cpu.set_bc(0xFFFF);
+  cpu.set_af(0x5AF0);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.bc() == 0x0000);
+  assert(cpu.af() == 0x5AF0);
+  assert(cpu.registers().pc == 0xC001);
+
+  // DEC SP (wrap-around)
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0x3B);
+
+  cpu.set_sp(0x0000);
+  cpu.set_af(0x5AF0);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.registers().sp == 0xFFFF);
+  assert(cpu.af() == 0x5AF0);
+  assert(cpu.registers().pc == 0xC001);
 }
 
 std::vector<u8> create_test_rom() {
