@@ -54,6 +54,13 @@ public:
 
 private:
   void xor_a(u8 value);
+  void or_a(u8 value);
+  void and_a(u8 value);
+  void cp_a(u8 value);
+  void sub_a(u8 value);
+  void add_a(u8 value);
+  void adc_a(u8 value);
+  void sbc_a(u8 value);
 
   [[nodiscard]] u8 fetch8();
   [[nodiscard]] u16 fetch16();
@@ -62,6 +69,8 @@ private:
   [[nodiscard]] u16 read_r16(u16 code) const;
   void write_r8(u8 code, u8 value);
   void write_r16(u8 code, u16 value);
+
+  void execute_alu(u8 operation, u8 value);
 
   u8 inc8(u8 value);
 

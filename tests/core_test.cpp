@@ -736,6 +736,24 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   assert(cpu.registers().f == 0x80);
   assert(cpu.hl() == 0xC100);
   assert(cpu.registers().pc == 0xC001);
+
+  // ADD A,0x01: FF + 01 = 00
+  cpu.reset_post_boot_dmg();
+
+  bus.write(0xC000, 0xC6);
+  bus.write(0xC001, 0x01);
+
+  cpu.set_af(0xFF00);
+  cpu.set_pc(0xC000);
+
+  const u32 cycles = cpu.step();
+
+  assert(cycles == 8);
+  assert(cpu.registers().pc == 0xC002);
+  assert(cpu.registers().a == 0x00);
+
+  // Z + H + C; N is clear.
+  assert(cpu.registers().f == 0xB0);
 }
 
 std::vector<u8> create_test_rom() {

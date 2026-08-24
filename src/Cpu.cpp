@@ -88,6 +88,137 @@ void Cpu::xor_a(u8 value) {
   }
 }
 
+void Cpu::or_a(u8 value) {
+  m_registers.a = static_cast<u8>(m_registers.a | value);
+
+  // OR clears N, H and C flags
+  // and sets Zero only when result is zero
+  m_registers.f = 0x00;
+
+  if (m_registers.a == 0) {
+    m_registers.f = static_cast<u8>(Flag::Z);
+  }
+}
+
+void Cpu::and_a(u8 value) {
+  m_registers.a = static_cast<u8>(m_registers.a & value);
+
+  // AND clearns N and C, sets H
+  m_registers.f = static_cast<u8>(Flag::H);
+
+  // Z is set when the result is zero
+  if (m_registers.a == 0) {
+    m_registers.f |= static_cast<u8>(Flag::Z);
+  }
+}
+
+void Cpu::cp_a(u8 value) {
+  const u8 a = m_registers.a;
+  const u8 result = static_cast<u8>(a - value);
+
+  // CP behaves like SUB but does not store the result in A.
+  m_registers.f = static_cast<u8>(Flag::N);
+
+  if (result == 0) {
+    m_registers.f |= static_cast<u8>(Flag::Z);
+  }
+
+  if ((a & 0x0F) < (value & 0x0F)) {
+    m_registers.f |= static_cast<u8>(Flag::H);
+  }
+
+  if (a < value) {
+    m_registers.f |= static_cast<u8>(Flag::C);
+  }
+}
+
+void Cpu::sub_a(u8 value) {
+  const u8 a = m_registers.a;
+  const u8 res = static_cast<u8>(a - value);
+
+  m_registers.a = res;
+  m_registers.f = static_cast<u8>(Flag::N);
+
+  if (res == 0) {
+    m_registers.f |= static_cast<u8>(Flag::Z);
+  }
+
+  if ((a & 0x0F) < (value & 0x0F)) {
+    m_registers.f |= static_cast<u8>(Flag::H);
+  }
+
+  if (a < value) {
+    m_registers.f |= static_cast<u8>(Flag::C);
+  }
+}
+
+void Cpu::add_a(u8 value) {
+  const u8 a = m_registers.a;
+  const u16 result = static_cast<u16>(a) + value;
+
+  m_registers.a = static_cast<u8>(result);
+
+  m_registers.f = 0x00;
+
+  if (m_registers.a == 0) {
+    m_registers.f |= static_cast<u8>(Flag::Z);
+  }
+
+  if (((a & 0x0F) + (value & 0x0F)) > 0x0F) {
+    m_registers.f |= static_cast<u8>(Flag::H);
+  }
+
+  if (result > 0xFF) {
+    m_registers.f |= static_cast<u8>(Flag::C);
+  }
+}
+
+void Cpu::adc_a(u8 value) {
+  const u8 a = m_registers.a;
+  const u8 carry = (m_registers.f & static_cast<u8>(Flag::C)) ? 1 : 0;
+
+  const u16 res = static_cast<u16>(a) + value + carry;
+
+  m_registers.a = static_cast<u8>(res);
+  m_registers.f = 0x00;
+
+  if (m_registers.a == 0) {
+    m_registers.f |= static_cast<u8>(Flag::Z);
+  }
+
+  if (((a & 0x0F) + (value & 0x0F) + carry) > 0x0F) {
+    m_registers.f |= static_cast<u8>(Flag::H);
+  }
+
+  if (res > 0xFF) {
+    m_registers.f |= static_cast<u8>(Flag::C);
+  }
+}
+
+void Cpu::sbc_a(u8 value) {
+  const u8 a = m_registers.a;
+  const u8 carry = (m_registers.f & static_cast<u8>(Flag::C)) ? 1 : 0;
+
+  const u16 subtrahend = static_cast<u16>(value) + carry;
+  const u8 result = static_cast<u8>(a - subtrahend);
+
+  m_registers.a = result;
+
+  m_registers.f = static_cast<u8>(Flag::N);
+
+  if (result == 0) {
+    m_registers.f |= static_cast<u8>(Flag::Z);
+  }
+
+  if ((a & 0x0F) < ((value & 0x0F) + carry)) {
+    m_registers.f |= static_cast<u8>(Flag::H);
+  }
+
+  if (static_cast<u16>(a) < subtrahend) {
+    m_registers.f |= static_cast<u8>(Flag::C);
+  }
+}
+
 u8 Cpu::fetch8() {
   const u8 value = m_bus.read(m_registers.pc);
   m_registers.pc = static_cast<u16>(m_registers.pc + 1);
@@ -243,6 +374,53 @@ u8 Cpu::inc8(u8 value) {
   return res;
 }
 
+void Cpu::execute_alu(u8 operation, u8 value) {
+  // 0 → ADD
+  // 1 → ADC
+  // 2 → SUB
+  // 3 → SBC
+  // 4 → AND
+  // 5 → XOR
+  // 6 → OR
+  // 7 → CP
+  switch (operation) {
+  case 0:
+    add_a(value);
+    return;
+
+  case 1:
+    adc_a(value);
+    return;
+
+  case 2:
+    sub_a(value);
+    return;
+
+  case 3:
+    sbc_a(value);
+    return;
+
+  case 4:
+    and_a(value);
+    return;
+
+  case 5:
+    xor_a(value);
+    return;
+
+  case 6:
+    or_a(value);
+    return;
+
+  case 7:
+    cp_a(value);
+    return;
+
+  default:
+    throw std::logic_error{"Invalid ALU operation"};
+  }
+}
+
 u32 Cpu::step() {
   if (m_halted) {
     return 4; // temp behaviour
@@ -335,14 +513,25 @@ u32 Cpu::step() {
     return 8;
   }
 
-  // XOR A, r8
-  if (opcode >= 0xA8 && opcode <= 0xAF) {
+  // ALU A, r8
+  if (opcode >= 0x80 && opcode <= 0xBF) {
+    const u8 operation = static_cast<u8>((opcode >> 3) & 0x07);
     const u8 src = static_cast<u8>(opcode & 0x07);
     const u8 value = read_r8(src);
 
-    xor_a(value);
+    execute_alu(operation, value);
 
     return src == 6 ? 8 : 4;
+  }
+
+  // ALU A,d8
+  if ((opcode & 0xC7) == 0xC6) {
+    const u8 operation = static_cast<u8>((opcode >> 3) & 0x07);
+    const u8 value = fetch8();
+
+    execute_alu(operation, value);
+
+    return 8;
   }
 
   switch (opcode) {
@@ -357,7 +546,6 @@ u32 Cpu::step() {
     m_registers.pc = destination;
     return 16;
   }
-
 
   // LD (HL-), A
   case 0x32: {
@@ -401,20 +589,6 @@ u32 Cpu::step() {
     m_registers.a = m_bus.read(0xFF00 + offset);
 
     return 12;
-  }
-
-  // CP A,u8
-  case 0xFE: {
-    const u8 value = fetch8();
-    const u8 a = m_registers.a;
-    const u8 res = a - value;
-
-    set_flag(Flag::Z, res == 0);
-    set_flag(Flag::N, true);
-    set_flag(Flag::H, (a & 0x0F) < (value & 0x0F));
-    set_flag(Flag::C, (a < value));
-
-    return 8;
   }
 
   default: {
