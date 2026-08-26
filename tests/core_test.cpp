@@ -754,6 +754,13 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   // Z + H + C; N is clear.
   assert(cpu.registers().f == 0xB0);
+
+  // FF02 bus test
+  bus.write(0xFF01, static_cast<u8>('A'));
+  bus.write(0xFF02, 0x81);
+
+  assert(bus.read(0xFF01) == static_cast<u8>('A'));
+  assert((bus.read(0xFF02) & 0x80) == 0);
 }
 
 std::vector<u8> create_test_rom() {

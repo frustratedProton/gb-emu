@@ -1,5 +1,6 @@
-#include "types.hpp"
 #include "Bus.hpp"
+#include "types.hpp"
+#include <iostream>
 
 u8 Bus::read(u16 addr) const {
   // Cartridge ROM
@@ -55,6 +56,25 @@ u8 Bus::read(u16 addr) const {
 }
 
 void Bus::write(u16 addr, u8 value) {
+  // serial transfer control
+  if (addr == 0xFF02) {
+    m_io.at(0x02);
+
+    // Bit 7: start transfer
+    // Bit 0: use internal clock
+
+    if ((value & 0x81) == 0x81) {
+      const u8 ch = m_io.at(0x01);
+
+      std::cout.put(static_cast<char>(ch));
+      std::cout.flush();
+    }
+
+    // assume that transfer is completed immediately
+    m_io.at(0x02) = static_cast<u8>(m_io.at(0x02) & 0x7F);
+    return;
+  }
+
   // cartridge ROM is read-only for ROM-only cartridges
   if (addr <= 0x7FFF) {
     return;
