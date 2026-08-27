@@ -773,7 +773,7 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   assert(cpu.step() == 8);
   assert(cpu.registers().a == 0x5A);
   assert(cpu.hl() == 0xC101);
-  assert(bus.read(0xC100) == 0x5A); 
+  assert(bus.read(0xC100) == 0x5A);
 
   // LD (HL+),A — store at [HL], then HL++
   cpu.reset_post_boot_dmg();
@@ -867,7 +867,102 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   assert(cpu.step() == 16);
   assert(cpu.registers().a == 0xA5);
-  assert(cpu.hl() == 0x9999);   
+  assert(cpu.hl() == 0x9999);
+
+  // CALL a16
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xCD);
+  bus.write(0xC001, 0x34); // target = 0xC534
+  bus.write(0xC002, 0xC5);
+  cpu.set_sp(0xDFFF);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 24);
+  assert(cpu.registers().pc == 0xC534);
+  assert(cpu.registers().sp == 0xDFFD); // two bytes pushed
+  assert(bus.read(0xDFFE) == 0xC0); // return addr high, at the higher address
+  assert(bus.read(0xDFFD) == 0x03); // return addr low
+  assert(cpu.af() == 0x01B0);       // CALL touches no flags
+
+  // JR r8 forward
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x18);
+  bus.write(0xC001, 0x10); // +16
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.registers().pc == 0xC012); // 0xC002 + 0x10
+
+  // JR r8 backward
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x18);
+  bus.write(0xC001, 0xFE); // -2
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.registers().pc == 0xC000); // 0xC002 - 2, a tight loop
+
+  // JR r8 must branch even with Z set
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x18);
+  bus.write(0xC001, 0x05);
+  cpu.set_af(0xFF80); // Z set
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.registers().pc == 0xC007);
+
+  // JR Z,r8 not taken
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x28);
+  bus.write(0xC001, 0x05);
+  cpu.set_af(0x0000); // Z clear
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.registers().pc == 0xC002);
+
+  // RET
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xC9);
+
+  bus.write(0xDFFD, 0x12); // low byte
+  bus.write(0xDFFE, 0xC0); // high byte
+
+  cpu.set_sp(0xDFFD);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().pc == 0xC012);
+  assert(cpu.registers().sp == 0xDFFF);
+
+  // CALL then RET round-trips
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xCD);
+  bus.write(0xC001, 0x00);
+  bus.write(0xC002, 0xC1); // CALL 0xC100
+  bus.write(0xC100, 0xC9); // RET
+  cpu.set_sp(0xDFFF);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 24);
+  assert(cpu.registers().pc == 0xC100);
+  assert(cpu.step() == 16);
+  assert(cpu.registers().pc == 0xC003); // back to the instruction after CALL
+  assert(cpu.registers().sp == 0xDFFF); // stack balanced
+
+  // RET NZ not taken
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xC0);
+  bus.write(0xDFFE, 0x12);
+  bus.write(0xDFFD, 0xC0);
+  cpu.set_sp(0xDFFD);
+  cpu.set_af(0x0080); 
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.registers().pc == 0xC001); // falls through
+  assert(cpu.registers().sp == 0xDFFD); // nothing popped
 }
 
 std::vector<u8> create_test_rom() {

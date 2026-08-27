@@ -421,6 +421,21 @@ void Cpu::execute_alu(u8 operation, u8 value) {
   }
 }
 
+void Cpu::push16(u16 value) {
+  m_registers.sp -= 1;
+  m_bus.write(m_registers.sp, static_cast<u8>(value >> 8));
+  m_registers.sp -= 1;
+  m_bus.write(m_registers.sp, static_cast<u8>(value & 0xFF));
+}
+
+u16 Cpu::pop16() {
+  const u8 lo = m_bus.read(m_registers.sp);
+  m_registers.sp += 1;
+  const u8 hi = m_bus.read(m_registers.sp);
+  m_registers.sp += 1;
+  return static_cast<u16>((hi << 8) | lo);
+}
+
 u32 Cpu::step() {
   if (m_halted) {
     return 4; // temp behaviour
@@ -556,6 +571,70 @@ u32 Cpu::step() {
     return 8;
   }
 
+  // JR r8
+  if (opcode == 0x18) {
+    const i8 offset = static_cast<i8>(fetch8());
+    m_registers.pc += offset;
+    return 12;
+  }
+
+  // JR cc,r8
+  if ((opcode & 0xE7) == 0x20) {
+    const i8 offset = static_cast<i8>(fetch8());
+    const u8 cc = (opcode >> 3) & 0x03;
+
+    bool take;
+
+    switch (cc) {
+    case 0:
+      take = !get_flag(Flag::Z);
+      break; // NZ
+    case 1:
+      take = get_flag(Flag::Z);
+      break; // Z
+    case 2:
+      take = !get_flag(Flag::C);
+      break; // NC
+    case 3:
+      take = get_flag(Flag::C);
+      break; // C
+    }
+
+    if (take) {
+      m_registers.pc += offset;
+      return 12;
+    }
+
+    return 8;
+  }
+
+  // RET
+  if ((opcode & 0xE7) == 0xC0) {
+    const u8 cc = static_cast<u8>((opcode >> 3) & 0x03);
+
+    bool take;
+    switch (cc) {
+    case 0:
+      take = !get_flag(Flag::Z);
+      break; // NZ
+    case 1:
+      take = get_flag(Flag::Z);
+      break; // Z
+    case 2:
+      take = !get_flag(Flag::C);
+      break; // NC
+    default:
+      take = get_flag(Flag::C);
+      break; // C
+    }
+
+    if (take) {
+      m_registers.pc = pop16();
+      return 20;
+    }
+    return 8;
+  }
+
   switch (opcode) {
   // NOP
   case 0x00:
@@ -579,6 +658,27 @@ u32 Cpu::step() {
     }
 
     return 8;
+  }
+
+  // CALL a16
+  case 0xCD: {
+    const u16 target = fetch16();
+    push16(m_registers.pc);
+    m_registers.pc = target;
+    return 24;
+  }
+
+  // RET 0xC9
+  case 0xC9: {
+    m_registers.pc = pop16();
+    return 16;
+  }
+
+  // RETI
+  case 0xD9: {
+    m_registers.pc = pop16();
+    m_ime = true;
+    return 16;
   }
 
   // DI
