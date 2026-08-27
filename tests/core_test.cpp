@@ -761,6 +761,113 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   assert(bus.read(0xFF01) == static_cast<u8>('A'));
   assert((bus.read(0xFF02) & 0x80) == 0);
+
+  // LD A,(HL+)
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x2A);
+  bus.write(0xC100, 0x5A);
+  bus.write(0xC101, 0xA5);
+  cpu.set_hl(0xC100);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.registers().a == 0x5A);
+  assert(cpu.hl() == 0xC101);
+  assert(bus.read(0xC100) == 0x5A); 
+
+  // LD (HL+),A — store at [HL], then HL++
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x22);
+  bus.write(0xC100, 0x00);
+  bus.write(0xC101, 0x00);
+  cpu.set_af(0x5AB0);
+  cpu.set_hl(0xC100);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(bus.read(0xC100) == 0x5A); // stored at the pre-increment address
+  assert(bus.read(0xC101) == 0x00); // not the next one
+  assert(cpu.hl() == 0xC101);
+  assert(cpu.registers().a == 0x5A);
+  assert(cpu.registers().f == 0xB0);
+
+  // LD (HL-),A
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x32);
+  bus.write(0xC0FF, 0x00);
+  cpu.set_af(0x5AB0);
+  cpu.set_hl(0xC100);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(bus.read(0xC100) == 0x5A); // stored at the pre-decrement address
+  assert(bus.read(0xC0FF) == 0x00);
+  assert(cpu.hl() == 0xC0FF);
+  assert(cpu.registers().a == 0x5A);
+
+  // LD A,(HL-)
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x3A);
+  bus.write(0xC100, 0x5A);
+  cpu.set_hl(0xC100);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.registers().a == 0x5A);
+  assert(cpu.hl() == 0xC0FF);
+
+  // LD A,(BC) / LD (BC),A — pins bit 3 as the direction bit
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x0A);
+  bus.write(0xC100, 0x5A);
+  cpu.set_bc(0xC100);
+  cpu.set_hl(0x9999);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.registers().a == 0x5A);
+  assert(cpu.hl() == 0x9999);
+
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x02);
+  bus.write(0xC100, 0x00);
+  cpu.set_af(0x5AB0);
+  cpu.set_bc(0xC100);
+  cpu.set_hl(0x9999);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(bus.read(0xC100) == 0x5A);
+  assert(cpu.hl() == 0x9999);
+
+  // LD (a16),A
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xEA);
+  bus.write(0xC001, 0x00); // addr low  = 0xC500
+  bus.write(0xC002, 0xC5); // addr high
+  bus.write(0xC500, 0x00);
+  cpu.set_af(0x5AB0);
+  cpu.set_hl(0x9999);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().pc == 0xC003); // 3 bytes consumed
+  assert(bus.read(0xC500) == 0x5A);
+  assert(cpu.hl() == 0x9999); // HL untouched
+  assert(cpu.registers().f == 0xB0);
+
+  // LD A,(a16)
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xFA);
+  bus.write(0xC001, 0x00);
+  bus.write(0xC002, 0xC5);
+  bus.write(0xC500, 0xA5);
+  cpu.set_hl(0x9999);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().a == 0xA5);
+  assert(cpu.hl() == 0x9999);   
 }
 
 std::vector<u8> create_test_rom() {

@@ -62,16 +62,15 @@ void Bus::write(u16 addr, u8 value) {
 
     // Bit 7: start transfer
     // Bit 0: use internal clock
-
     if ((value & 0x81) == 0x81) {
-      const u8 ch = m_io.at(0x01);
-
-      std::cout.put(static_cast<char>(ch));
+      std::cout.put(static_cast<char>(m_io.at(0x01)));
       std::cout.flush();
+
+      value = static_cast<u8>(value & 0x7F);
     }
 
     // assume that transfer is completed immediately
-    m_io.at(0x02) = static_cast<u8>(m_io.at(0x02) & 0x7F);
+    m_io.at(0x02) = value;
     return;
   }
 

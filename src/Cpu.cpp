@@ -534,6 +534,28 @@ u32 Cpu::step() {
     return 8;
   }
 
+  if ((opcode & 0xCF) == 0x02 || (opcode & 0xCF) == 0x0A) {
+    const u8 pair = static_cast<u8>((opcode >> 4) & 0x03);
+    const bool to_a = (opcode & 0x08) != 0;
+    const bool hl_pair = pair == 2 || pair == 3;
+    const bool increment = pair == 2;
+
+    const u16 addr = hl_pair ? hl() : read_r16(pair);
+
+    if (to_a) {
+      m_registers.a = m_bus.read(addr);
+    } else {
+      m_bus.write(addr, m_registers.a);
+    }
+
+    if (hl_pair) {
+      set_hl(increment ? static_cast<u16>(addr + 1)
+                       : static_cast<u16>(addr - 1));
+    }
+
+    return 8;
+  }
+
   switch (opcode) {
   // NOP
   case 0x00:
@@ -545,14 +567,6 @@ u32 Cpu::step() {
     const u16 destination = fetch16();
     m_registers.pc = destination;
     return 16;
-  }
-
-  // LD (HL-), A
-  case 0x32: {
-    const u16 addr = hl();
-    m_bus.write(addr, m_registers.a);
-    set_hl(addr - 1);
-    return 8;
   }
 
   // JR NZ, i8
@@ -583,12 +597,26 @@ u32 Cpu::step() {
     return 12;
   }
 
+  // LD (a16), A
+  case 0xEA: {
+    const u16 addr = fetch16();
+    m_bus.write(addr, m_registers.a);
+    return 16;
+  }
+
   // LD A,(FF00+u8)
   case 0xF0: {
     const u8 offset = fetch8();
     m_registers.a = m_bus.read(0xFF00 + offset);
 
     return 12;
+  }
+
+  // LD A,(a16)
+  case 0xFA: {
+    const u16 addr = fetch16();
+    m_registers.a = m_bus.read(addr);
+    return 16;
   }
 
   default: {
