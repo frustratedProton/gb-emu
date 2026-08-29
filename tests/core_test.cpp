@@ -957,12 +957,51 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   bus.write(0xDFFE, 0x12);
   bus.write(0xDFFD, 0xC0);
   cpu.set_sp(0xDFFD);
-  cpu.set_af(0x0080); 
+  cpu.set_af(0x0080);
   cpu.set_pc(0xC000);
 
   assert(cpu.step() == 8);
   assert(cpu.registers().pc == 0xC001); // falls through
   assert(cpu.registers().sp == 0xDFFD); // nothing popped
+
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xCD);
+  bus.write(0xC001, 0x00);
+  bus.write(0xC002, 0xC1); // CALL 0xC100 from 0xC000
+  cpu.set_sp(0xDFFF);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 24);
+  assert(bus.read(0xDFFD) == 0x03); // low byte at the lower address
+  assert(bus.read(0xDFFE) == 0xC0);
+
+  // PUSH HL 
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0x1234);
+  cpu.set_sp(0xDFFF);
+  bus.write(0xC000, 0xE5); // PUSH HL
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().sp == 0xDFFD); // sp decremented by 2
+  assert(bus.read(0xDFFE) == 0x12);     // H (high byte) at SP+1
+  assert(bus.read(0xDFFD) == 0x34);     // L (low byte)  at SP
+
+  // PUSH then POP round trip
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0xBEEF);
+  cpu.set_bc(0x0000);
+  cpu.set_sp(0xDFFF);
+
+  bus.write(0xC000, 0xE5); // PUSH HL
+  bus.write(0xC001, 0xC1); // POP BC
+
+  cpu.set_pc(0xC000);
+  cpu.step(); // PUSH HL
+  cpu.step(); // POP BC
+
+  assert(cpu.bc() == 0xBEEF);           // BC should now equal what HL was
+  assert(cpu.registers().sp == 0xDFFF); // stack balanced
 }
 
 std::vector<u8> create_test_rom() {

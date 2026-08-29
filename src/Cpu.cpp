@@ -436,6 +436,40 @@ u16 Cpu::pop16() {
   return static_cast<u16>((hi << 8) | lo);
 }
 
+u16 Cpu::read_r16_push(u8 reg) const {
+  switch (reg) {
+  case 0:
+    return bc();
+  case 1:
+    return de();
+  case 2:
+    return hl();
+  case 3:
+    return af();
+  }
+  return 0;
+}
+
+void Cpu::write_r16_push(u8 reg, u16 value) {
+  switch (reg) {
+  case 0:
+    set_bc(value);
+    break;
+
+  case 1:
+    set_de(value);
+    break;
+
+  case 2:
+    set_hl(value);
+    break;
+
+  case 3:
+    set_af(value);
+    break;
+  }
+}
+
 u32 Cpu::step() {
   if (m_halted) {
     return 4; // temp behaviour
@@ -633,6 +667,50 @@ u32 Cpu::step() {
       return 20;
     }
     return 8;
+  }
+
+  // PUSH HL
+  if ((opcode & 0xCF) == 0xC5) {
+    const u8 pair = static_cast<u8>((opcode >> 4) & 0x03);
+    push16(read_r16_push(pair));
+    return 16;
+  }
+
+  // POP HL
+  if ((opcode & 0xCF) == 0xC1) {
+    const u8 pair = static_cast<u8>((opcode >> 4) & 0x03);
+    write_r16_push(pair, pop16());
+    return 12;
+  }
+
+  // CALL cc, u16
+  if ((opcode & 0xE7) == 0xC4) {
+    const u16 target = fetch16();
+    const u8 cc = static_cast<u8>((opcode >> 3) & 0x03);
+
+    bool take;
+    switch (cc) {
+    case 0:
+      take = !get_flag(Flag::Z);
+      break; // NZ
+    case 1:
+      take = get_flag(Flag::Z);
+      break; // Z
+    case 2:
+      take = !get_flag(Flag::C);
+      break; // NC
+    default:
+      take = get_flag(Flag::C);
+      break; // C
+    }
+
+    if (take) {
+      push16(m_registers.pc);
+      m_registers.pc = target;
+      return 24;
+    }
+
+    return 12;
   }
 
   switch (opcode) {
