@@ -53,6 +53,17 @@ public:
   void set_sp(u16 value) { m_registers.sp = value; }
 
 private:
+  [[nodiscard]] u32 execute_cb();
+
+  [[nodiscard]] u8 rlc(u8 value);
+  [[nodiscard]] u8 rrc(u8 value);
+  [[nodiscard]] u8 rl(u8 value);
+  [[nodiscard]] u8 rr(u8 value);
+  [[nodiscard]] u8 sla(u8 value);
+  [[nodiscard]] u8 sra(u8 value);
+  [[nodiscard]] u8 swap(u8 value);
+  [[nodiscard]] u8 srl(u8 value);
+
   void xor_a(u8 value);
   void or_a(u8 value);
   void and_a(u8 value);

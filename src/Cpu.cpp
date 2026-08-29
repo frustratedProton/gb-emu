@@ -470,6 +470,154 @@ void Cpu::write_r16_push(u8 reg, u16 value) {
   }
 }
 
+u8 Cpu::rlc(u8 value) {
+  const u8 bit7 = (value >> 7) & 0x01;
+  const u8 result = static_cast<u8>((value << 1) | bit7);
+  set_flag(Flag::Z, result == 0);
+  set_flag(Flag::N, false);
+  set_flag(Flag::H, false);
+  set_flag(Flag::C, bit7 != 0);
+  return result;
+}
+
+u8 Cpu::rrc(u8 value) {
+  const u8 bit0 = value & 0x01;
+  const u8 result = static_cast<u8>((value >> 1) | (bit0 << 7));
+  set_flag(Flag::Z, result == 0);
+  set_flag(Flag::N, false);
+  set_flag(Flag::H, value);
+  set_flag(Flag::C, bit0 != 0);
+  return result;
+}
+
+u8 Cpu::rl(u8 value) {
+  const u8 old_carry = get_flag(Flag::C) ? 1 : 0;
+  const u8 bit7 = (value >> 7) & 0x01;
+  const u8 result = static_cast<u8>((value << 1) | old_carry);
+  set_flag(Flag::Z, result == 0);
+  set_flag(Flag::N, false);
+  set_flag(Flag::H, false);
+  set_flag(Flag::C, bit7 != 0);
+  return result;
+}
+
+u8 Cpu::rr(u8 value) {
+  const u8 old_carry = get_flag(Flag::C) ? 1 : 0;
+  const u8 bit0 = value & 0x01;
+  const u8 result = static_cast<u8>((value >> 1) | (old_carry << 7));
+  set_flag(Flag::Z, result == 0);
+  set_flag(Flag::N, false);
+  set_flag(Flag::H, false);
+  set_flag(Flag::C, bit0 != 0);
+  return result;
+}
+
+u8 Cpu::sla(u8 value) {
+  const u8 bit7 = (value >> 7) & 0x01;
+  const u8 result = static_cast<u8>(value << 1);
+  set_flag(Flag::Z, result == 0);
+  set_flag(Flag::N, false);
+  set_flag(Flag::H, false);
+  set_flag(Flag::C, bit7 != 0);
+  return result;
+}
+
+u8 Cpu::swap(u8 value) {
+  const u8 result = static_cast<u8>((value << 4) | (value >> 4));
+  set_flag(Flag::Z, result == 0);
+  set_flag(Flag::N, false);
+  set_flag(Flag::H, false);
+  set_flag(Flag::C, false);
+  return result;
+}
+
+u8 Cpu::srl(u8 value) {
+  const u8 bit0 = value & 0x01;
+  const u8 result = static_cast<u8>(value >> 1);
+  set_flag(Flag::Z, result == 0);
+  set_flag(Flag::N, false);
+  set_flag(Flag::H, false);
+  set_flag(Flag::C, bit0 != 0);
+  return result;
+}
+
+u8 Cpu::sra(u8 value) {
+  const u8 bit0 = value & 0x01;
+  const u8 bit7 = value & 0x80;
+  const u8 result = static_cast<u8>((value >> 1) | bit7);
+  set_flag(Flag::Z, result == 0);
+  set_flag(Flag::N, false);
+  set_flag(Flag::H, false);
+  set_flag(Flag::C, bit0 != 0);
+  return result;
+}
+
+u32 Cpu::execute_cb() {
+  const u8 opcode = fetch8();
+
+  const u8 op = (opcode >> 6) & 0x03;
+  const u8 bit = (opcode >> 3) & 0x07;
+  const u8 reg = opcode & 0x07;
+
+  const bool is_hl = reg == 6;
+  const u8 value = read_r8(reg);
+
+  // BIT - just tests, does not write back
+  if (op == 1) {
+    const bool is_set = (value & (1 << bit)) != 0;
+    set_flag(Flag::Z, !is_set);
+    set_flag(Flag::N, false);
+    set_flag(Flag::H, true);
+    return is_hl ? 12 : 8;
+  }
+
+  // RES - clears a bit, writes back
+  if (op == 2) {
+    const u8 result = value & static_cast<u8>(~(1 << bit));
+    write_r8(reg, result);
+    return is_hl ? 16 : 8;
+  }
+
+  // SET - sets a bit, writes back
+  if (op == 3) {
+    const u8 result = value | static_cast<u8>(1 << bit);
+    write_r8(reg, result);
+    return is_hl ? 16 : 8;
+  }
+
+  // op == 0, shifts and rotates, bit field selects which one
+  u8 result = 0;
+  switch (bit) {
+  case 0:
+    result = rlc(value);
+    break;
+  case 1:
+    result = rrc(value);
+    break;
+  case 2:
+    result = rl(value);
+    break;
+  case 3:
+    result = rr(value);
+    break;
+  case 4:
+    result = sla(value);
+    break;
+  case 5:
+    result = sra(value);
+    break;
+  case 6:
+    result = swap(value);
+    break;
+  case 7:
+    result = srl(value);
+    break;
+  }
+
+  write_r8(reg, result);
+  return is_hl ? 16 : 8;
+}
+
 u32 Cpu::step() {
   if (m_halted) {
     return 4; // temp behaviour
@@ -750,6 +898,11 @@ u32 Cpu::step() {
   case 0xC9: {
     m_registers.pc = pop16();
     return 16;
+  }
+
+  // PREFIX CB
+  case 0xCB: {
+    return execute_cb();
   }
 
   // RETI
