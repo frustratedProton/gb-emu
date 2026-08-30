@@ -975,7 +975,7 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   assert(bus.read(0xDFFD) == 0x03); // low byte at the lower address
   assert(bus.read(0xDFFE) == 0xC0);
 
-  // PUSH HL 
+  // PUSH HL
   cpu.reset_post_boot_dmg();
   cpu.set_hl(0x1234);
   cpu.set_sp(0xDFFF);
@@ -997,17 +997,187 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   bus.write(0xC001, 0xC1); // POP BC
 
   cpu.set_pc(0xC000);
-  cpu.step(); // PUSH HL
-  cpu.step(); // POP BC
+  static_cast<void>(cpu.step()); // PUSH HL
+  static_cast<void>(cpu.step()); // POP BC
 
   assert(cpu.bc() == 0xBEEF);           // BC should now equal what HL was
   assert(cpu.registers().sp == 0xDFFF); // stack balanced
+
+  // PUSH HL writes correct bytes to stack
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0x1234);
+  cpu.set_sp(0xDFFF);
+  bus.write(0xC000, 0xE5);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().sp == 0xDFFD);
+  assert(bus.read(0xDFFE) == 0x12); // H at SP+1
+  assert(bus.read(0xDFFD) == 0x34); // L at SP
+
+  // PUSH BC
+  cpu.reset_post_boot_dmg();
+  cpu.set_bc(0xABCD);
+  cpu.set_sp(0xDFFF);
+  bus.write(0xC000, 0xC5);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(bus.read(0xDFFE) == 0xAB);
+  assert(bus.read(0xDFFD) == 0xCD);
+  assert(cpu.registers().sp == 0xDFFD);
+
+  // PUSH DE
+  cpu.reset_post_boot_dmg();
+  cpu.set_de(0x1234);
+  cpu.set_sp(0xDFFF);
+  bus.write(0xC000, 0xD5);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(bus.read(0xDFFE) == 0x12);
+  assert(bus.read(0xDFFD) == 0x34);
+  assert(cpu.registers().sp == 0xDFFD);
+
+  // PUSH AF - F low nibble must stay zero
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x12F0);
+  cpu.set_sp(0xDFFF);
+  bus.write(0xC000, 0xF5);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(bus.read(0xDFFE) == 0x12);
+  assert(bus.read(0xDFFD) == 0xF0);
+  assert(cpu.registers().sp == 0xDFFD);
+
+  // POP BC
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0xDFFD);
+  bus.write(0xDFFD, 0xCD); // lo
+  bus.write(0xDFFE, 0xAB); // hi
+  bus.write(0xC000, 0xC1);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.bc() == 0xABCD);
+  assert(cpu.registers().sp == 0xDFFF);
+
+  // POP AF masks lower nibble
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0xDFFD);
+  bus.write(0xDFFD, 0xFF); // lower nibble should be masked
+  bus.write(0xDFFE, 0x12); // hi
+  bus.write(0xC000, 0xF1);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.registers().a == 0x12);
+  assert(cpu.registers().f == 0xF0); // 0xFF masked to 0xF0
+  assert(cpu.registers().sp == 0xDFFF);
+
+  // PUSH HL then POP BC round trip
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0xBEEF);
+  cpu.set_bc(0x0000);
+  cpu.set_sp(0xDFFF);
+  bus.write(0xC000, 0xE5); // PUSH HL
+  bus.write(0xC001, 0xC1); // POP BC
+  cpu.set_pc(0xC000);
+
+  static_cast<void>(cpu.step()); // PUSH HL, discard cycles
+  static_cast<void>(cpu.step()); // POP BC,  discard cycles
+
+  assert(cpu.bc() == 0xBEEF);
+  assert(cpu.registers().sp == 0xDFFF);
+
+  // RLCA - bit 7 goes to carry and wraps to bit 0
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x8500); // A = 0x85 = 1000 0101
+  bus.write(0xC000, 0x07);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x0B); 
+  assert(cpu.get_flag(Flag::C));     // old bit7 was 1
+  assert(!cpu.get_flag(Flag::Z));    // always cleared
+  assert(!cpu.get_flag(Flag::N));
+  assert(!cpu.get_flag(Flag::H));
+
+  // RRCA - bit 0 goes to carry and wraps to bit 7
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x8500); // A = 0x85 = 1000 0101
+  bus.write(0xC000, 0x0F);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0xC2);
+  assert(cpu.get_flag(Flag::C));     // old bit0 was 1
+  assert(!cpu.get_flag(Flag::Z));
+  assert(!cpu.get_flag(Flag::N));
+  assert(!cpu.get_flag(Flag::H));
+
+  // RLA - rotate left through carry
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x8500); // A = 0x85, C = 0
+  bus.write(0xC000, 0x17);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x0A);
+  assert(cpu.get_flag(Flag::C));     
+  assert(!cpu.get_flag(Flag::Z));
+  assert(!cpu.get_flag(Flag::N));
+  assert(!cpu.get_flag(Flag::H));
+
+  // RLA with carry set going in
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x8510); // A = 0x85, C = 1
+  bus.write(0xC000, 0x17);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x0B); 
+  assert(cpu.get_flag(Flag::C));     
+
+  // RRA - rotate right through carry
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x8500); // A = 0x85, C = 0
+  bus.write(0xC000, 0x1F);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x42); 
+  assert(cpu.get_flag(Flag::C));     
+  assert(!cpu.get_flag(Flag::Z));
+  assert(!cpu.get_flag(Flag::N));
+  assert(!cpu.get_flag(Flag::H));
+
+  // RRA with carry set going in
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x8510); 
+  bus.write(0xC000, 0x1F);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0xC2); 
+  assert(cpu.get_flag(Flag::C));   
+
+  // RLCA does not set Z even when result is zero
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x0000); 
+  bus.write(0xC000, 0x07);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x00);
+  assert(!cpu.get_flag(Flag::Z)); 
+  assert(!cpu.get_flag(Flag::C));
 }
 
 std::vector<u8> create_test_rom() {
   std::vector<u8> rom(0x8000, 0x00);
 
-  // Distinct values make ROM read tests more meaningful.
   rom.at(0x0000) = 0x31;
   rom.at(0x0134) = 'T';
   rom.at(0x7FFF) = 0x42;

@@ -861,6 +861,8 @@ u32 Cpu::step() {
     return 12;
   }
 
+  //
+
   switch (opcode) {
   // NOP
   case 0x00:
@@ -948,6 +950,52 @@ u32 Cpu::step() {
     const u16 addr = fetch16();
     m_registers.a = m_bus.read(addr);
     return 16;
+  }
+
+  // i used switch for below 4 cases cause
+  // i felt bitmask was kinda weird to read
+  case 0x07: {
+    const u8 bit7 = (m_registers.a >> 7) & 0x01;
+    m_registers.a = static_cast<u8>((m_registers.a << 1) | bit7);
+    set_flag(Flag::Z, false);
+    set_flag(Flag::N, false);
+    set_flag(Flag::H, false);
+    set_flag(Flag::C, bit7 != 0);
+    return 4;
+  }
+
+  case 0x0F: {
+    const u8 bit0 = m_registers.a & 0x01;
+    m_registers.a = static_cast<u8>((m_registers.a >> 1) | (bit0 << 7));
+    set_flag(Flag::Z, false);
+    set_flag(Flag::N, false);
+    set_flag(Flag::H, false);
+    set_flag(Flag::C, bit0 != 0);
+    return 4;
+  }
+
+    // RLA
+  case 0x17: {
+    const u8 old_carry = get_flag(Flag::C) ? 1 : 0;
+    const u8 bit7 = (m_registers.a >> 7) & 0x01;
+    m_registers.a = static_cast<u8>((m_registers.a << 1) | old_carry);
+    set_flag(Flag::Z, false);
+    set_flag(Flag::N, false);
+    set_flag(Flag::H, false);
+    set_flag(Flag::C, bit7 != 0);
+    return 4;
+  }
+
+  // RRA
+  case 0x1F: {
+    const u8 old_carry = get_flag(Flag::C) ? 1 : 0;
+    const u8 bit0 = m_registers.a & 0x01;
+    m_registers.a = static_cast<u8>((m_registers.a >> 1) | (old_carry << 7));
+    set_flag(Flag::Z, false);
+    set_flag(Flag::N, false);
+    set_flag(Flag::H, false);
+    set_flag(Flag::C, bit0 != 0);
+    return 4;
   }
 
   default: {
