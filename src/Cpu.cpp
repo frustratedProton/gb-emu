@@ -861,7 +861,53 @@ u32 Cpu::step() {
     return 12;
   }
 
-  //
+  // ADD HL, rr
+  if ((opcode & 0xCF) == 0x09) {
+    const u8 src = static_cast<u8>((opcode >> 4) & 0x03);
+    const u16 rr = read_r16(src);
+    const u16 h = hl();
+
+    const u32 result = static_cast<u32>(h) + static_cast<u32>(rr);
+
+    const bool half_carry = ((h & 0x0FFF) + (rr & 0x0FFF)) > 0x0FFF;
+    const bool carry = result > 0xFFFF;
+
+    set_hl(static_cast<u16>(result));
+
+    set_flag(Flag::N, false);
+    set_flag(Flag::H, half_carry);
+    set_flag(Flag::C, carry);
+
+    return 8;
+  }
+
+  // JP cc
+  if ((opcode & 0xE7) == 0xC2) {
+    const u16 target = fetch16();
+    const u8 cc = static_cast<u8>((opcode >> 3) & 0x03);
+
+    bool take{};
+    switch (cc) {
+    case 0:
+      take = !get_flag(Flag::Z);
+      break; // NZ
+    case 1:
+      take = get_flag(Flag::Z);
+      break; // Z
+    case 2:
+      take = !get_flag(Flag::C);
+      break; // NC
+    default:
+      take = get_flag(Flag::C);
+      break; // C
+    }
+
+    if (take) {
+      m_registers.pc = target;
+      return 16;
+    }
+    return 12;
+  }
 
   switch (opcode) {
   // NOP
@@ -935,6 +981,12 @@ u32 Cpu::step() {
     const u16 addr = fetch16();
     m_bus.write(addr, m_registers.a);
     return 16;
+  }
+
+  // JP HL
+  case 0xE9: {
+    m_registers.pc = hl();
+    return 4;
   }
 
   // LD A,(FF00+u8)

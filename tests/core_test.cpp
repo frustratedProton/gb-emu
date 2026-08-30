@@ -1098,9 +1098,9 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   cpu.set_pc(0xC000);
 
   assert(cpu.step() == 4);
-  assert(cpu.registers().a == 0x0B); 
-  assert(cpu.get_flag(Flag::C));     // old bit7 was 1
-  assert(!cpu.get_flag(Flag::Z));    // always cleared
+  assert(cpu.registers().a == 0x0B);
+  assert(cpu.get_flag(Flag::C));  // old bit7 was 1
+  assert(!cpu.get_flag(Flag::Z)); // always cleared
   assert(!cpu.get_flag(Flag::N));
   assert(!cpu.get_flag(Flag::H));
 
@@ -1112,7 +1112,7 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   assert(cpu.step() == 4);
   assert(cpu.registers().a == 0xC2);
-  assert(cpu.get_flag(Flag::C));     // old bit0 was 1
+  assert(cpu.get_flag(Flag::C)); // old bit0 was 1
   assert(!cpu.get_flag(Flag::Z));
   assert(!cpu.get_flag(Flag::N));
   assert(!cpu.get_flag(Flag::H));
@@ -1125,7 +1125,7 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   assert(cpu.step() == 4);
   assert(cpu.registers().a == 0x0A);
-  assert(cpu.get_flag(Flag::C));     
+  assert(cpu.get_flag(Flag::C));
   assert(!cpu.get_flag(Flag::Z));
   assert(!cpu.get_flag(Flag::N));
   assert(!cpu.get_flag(Flag::H));
@@ -1137,8 +1137,8 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   cpu.set_pc(0xC000);
 
   assert(cpu.step() == 4);
-  assert(cpu.registers().a == 0x0B); 
-  assert(cpu.get_flag(Flag::C));     
+  assert(cpu.registers().a == 0x0B);
+  assert(cpu.get_flag(Flag::C));
 
   // RRA - rotate right through carry
   cpu.reset_post_boot_dmg();
@@ -1147,32 +1147,182 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   cpu.set_pc(0xC000);
 
   assert(cpu.step() == 4);
-  assert(cpu.registers().a == 0x42); 
-  assert(cpu.get_flag(Flag::C));     
+  assert(cpu.registers().a == 0x42);
+  assert(cpu.get_flag(Flag::C));
   assert(!cpu.get_flag(Flag::Z));
   assert(!cpu.get_flag(Flag::N));
   assert(!cpu.get_flag(Flag::H));
 
   // RRA with carry set going in
   cpu.reset_post_boot_dmg();
-  cpu.set_af(0x8510); 
+  cpu.set_af(0x8510);
   bus.write(0xC000, 0x1F);
   cpu.set_pc(0xC000);
 
   assert(cpu.step() == 4);
-  assert(cpu.registers().a == 0xC2); 
-  assert(cpu.get_flag(Flag::C));   
+  assert(cpu.registers().a == 0xC2);
+  assert(cpu.get_flag(Flag::C));
 
   // RLCA does not set Z even when result is zero
   cpu.reset_post_boot_dmg();
-  cpu.set_af(0x0000); 
+  cpu.set_af(0x0000);
   bus.write(0xC000, 0x07);
   cpu.set_pc(0xC000);
 
   assert(cpu.step() == 4);
   assert(cpu.registers().a == 0x00);
-  assert(!cpu.get_flag(Flag::Z)); 
+  assert(!cpu.get_flag(Flag::Z));
   assert(!cpu.get_flag(Flag::C));
+
+  // JP HL
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0xC100);
+  bus.write(0xC000, 0xE9);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().pc == 0xC100); // jumped to HL
+  assert(cpu.hl() == 0xC100);           // HL unchanged
+
+  // JP cc
+  // JP NZ taken
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xC2);
+  bus.write(0xC001, 0x00);
+  bus.write(0xC002, 0xC1); // target = 0xC100
+  cpu.set_af(0x0000);      // Z clear -> NZ taken
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().pc == 0xC100);
+
+  // JP NZ not taken
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xC2);
+  bus.write(0xC001, 0x00);
+  bus.write(0xC002, 0xC1);
+  cpu.set_af(0x0080); // Z set -> NZ not taken
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.registers().pc == 0xC003); // fell through
+
+  // JP Z taken
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xCA);
+  bus.write(0xC001, 0x00);
+  bus.write(0xC002, 0xC1);
+  cpu.set_af(0x0080); // Z set -> Z taken
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().pc == 0xC100);
+
+  // JP NC taken
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xD2);
+  bus.write(0xC001, 0x00);
+  bus.write(0xC002, 0xC1);
+  cpu.set_af(0x0000); // C clear -> NC taken
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().pc == 0xC100);
+
+  // JP C taken
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xDA);
+  bus.write(0xC001, 0x00);
+  bus.write(0xC002, 0xC1);
+  cpu.set_af(0x0010); // C set -> C taken
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().pc == 0xC100);
+
+  // JP C not taken
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0xDA);
+  bus.write(0xC001, 0x00);
+  bus.write(0xC002, 0xC1);
+  cpu.set_af(0x0000); // C clear -> C not taken
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.registers().pc == 0xC003);
+
+  // ADD HL, rr
+  // ADD HL, BC basic
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0x1000);
+  cpu.set_bc(0x0234);
+  bus.write(0xC000, 0x09);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.hl() == 0x1234);
+  assert(!cpu.get_flag(Flag::N));
+  assert(!cpu.get_flag(Flag::H));
+  assert(!cpu.get_flag(Flag::C));
+
+  // ADD HL, HL
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0x1000);
+  bus.write(0xC000, 0x29);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.hl() == 0x2000);
+  assert(!cpu.get_flag(Flag::N));
+  assert(!cpu.get_flag(Flag::C));
+
+  // ADD HL, rr carry
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0xFFFF);
+  cpu.set_bc(0x0001);
+  bus.write(0xC000, 0x09);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.hl() == 0x0000);
+  assert(cpu.get_flag(Flag::C));
+  assert(!cpu.get_flag(Flag::N));
+
+  // ADD HL, rr half carry (bit 11 overflow)
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0x0FFF);
+  cpu.set_bc(0x0001);
+  bus.write(0xC000, 0x09);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.hl() == 0x1000);
+  assert(cpu.get_flag(Flag::H));
+  assert(!cpu.get_flag(Flag::C));
+
+  // ADD HL, rr does not modify Z flag
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0x0000);
+  cpu.set_bc(0x0000);
+  cpu.set_af(0x0080); // Z set before
+  bus.write(0xC000, 0x09);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.hl() == 0x0000);
+  assert(cpu.get_flag(Flag::Z)); // Z unchanged
+
+  // ADD HL, SP
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0x1000);
+  cpu.set_sp(0x0234);
+  bus.write(0xC000, 0x39);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.hl() == 0x1234);
+
+  std::cout << "JP and ADD HL tests passed\n";
 }
 
 std::vector<u8> create_test_rom() {
