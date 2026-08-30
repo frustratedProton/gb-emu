@@ -934,6 +934,40 @@ u32 Cpu::step() {
     return 8;
   }
 
+  // DAA
+  case 0x27: {
+    u8 reg_a = m_registers.a;
+    u8 adjust = 0;
+
+    if (!get_flag(Flag::N)) {
+      // after addition
+      if (get_flag(Flag::H) || (reg_a & 0x0F) > 9)
+        adjust |= 0x06;
+
+      if (get_flag(Flag::C) || reg_a > 0x99) {
+        adjust |= 0x60;
+        set_flag(Flag::C, true);
+      }
+
+      reg_a += adjust;
+    } else {
+      // after subtraction
+      if (get_flag(Flag::H))
+        adjust |= 0x06;
+
+      if (get_flag(Flag::C)) {
+        adjust |= 0x60;
+      }
+
+      reg_a -= adjust;
+    }
+
+    m_registers.a = reg_a;
+    set_flag(Flag::Z, reg_a == 0);
+    set_flag(Flag::H, false); // always cleared
+    return 4;
+  }
+
   // CALL a16
   case 0xCD: {
     const u16 target = fetch16();

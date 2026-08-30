@@ -1322,7 +1322,68 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   assert(cpu.step() == 8);
   assert(cpu.hl() == 0x1234);
 
-  std::cout << "JP and ADD HL tests passed\n";
+  // DAA after ADD - no adjustment needed
+  // 0x05 + 0x03 = 0x08, valid BCD already
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x27);
+  cpu.set_af(0x0800); // A = 0x08, no flags set
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x08);
+  assert(!cpu.get_flag(Flag::C));
+  assert(!cpu.get_flag(Flag::H));
+
+  // DAA after ADD - lower nibble fix
+  // 0x08 + 0x04 = 0x0C, lower nibble > 9, add 0x06
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x27);
+  cpu.set_af(0x0C00); // A = 0x0C, N clear (was add)
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x12); // 0x0C + 0x06 = 0x12, which is BCD 12
+
+  // DAA after ADD - carry needed
+  // 0x99 + 0x01 in BCD
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x27);
+  cpu.set_af(0x9A00); // A = 0x9A, N clear
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x00); // 0x9A + 0x66 = 0x100, wraps to 0x00
+  assert(cpu.get_flag(Flag::C));
+  assert(cpu.get_flag(Flag::Z));
+
+  // DAA after SUB - H flag set
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x27);
+  cpu.set_af(0x0040 | 0x20); // A = 0x00, N set, H set
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0xFA); // 0x00 - 0x06 = 0xFA
+  assert(!cpu.get_flag(Flag::H));
+
+  // DAA sets Z when result is zero
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x27);
+  cpu.set_af(0x0000); // A = 0x00, no flags
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x00);
+  assert(cpu.get_flag(Flag::Z));
+
+  // DAA clears H always
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x27);
+  cpu.set_af(0x0020); // H set going in
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(!cpu.get_flag(Flag::H)); // always cleared after DAA
 }
 
 std::vector<u8> create_test_rom() {
