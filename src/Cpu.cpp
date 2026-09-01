@@ -485,7 +485,7 @@ u8 Cpu::rrc(u8 value) {
   const u8 result = static_cast<u8>((value >> 1) | (bit0 << 7));
   set_flag(Flag::Z, result == 0);
   set_flag(Flag::N, false);
-  set_flag(Flag::H, value);
+  set_flag(Flag::H, false);
   set_flag(Flag::C, bit0 != 0);
   return result;
 }
@@ -618,7 +618,52 @@ u32 Cpu::execute_cb() {
   return is_hl ? 16 : 8;
 }
 
+u32 Cpu::handle_interrupts() {
+  if (!m_ime && !m_halted)
+    return 0;
+
+  const u8 ie = m_bus.read(0xFFFF);  // what interrupts are enabled
+  const u8 if_ = m_bus.read(0xFF0F); // what interrupts are pending
+  const u8 pending = ie & if_;       // only care about enabled+pending
+
+  if (pending == 0)
+    return 0;
+
+  m_halted = false; // wake up halt
+
+  if (!m_ime)
+    return 0;
+
+  for (u8 bit = 0; bit < 5; ++bit) {
+    if ((pending & (1 << bit)) == 0)
+      continue;
+
+    m_bus.write(0xFF0F, static_cast<u8>(if_ & ~(1 << bit)));
+
+    m_ime = false;
+
+    push16(m_registers.pc);
+
+    static constexpr u16 vectors[5] = {
+        0x0040, // VBlank
+        0x0048, // LCD STAT
+        0x0050, // Timer
+        0x0058, // Serial
+        0x0060, // Joypad
+    };
+
+    m_registers.pc = vectors[bit];
+    return 20;
+  }
+  return 0;
+}
+
 u32 Cpu::step() {
+  const u32 interrupt_cycles = handle_interrupts();
+
+  if (interrupt_cycles > 0)
+    return interrupt_cycles;
+
   if (m_halted) {
     return 4; // temp behaviour
   }
@@ -922,18 +967,6 @@ u32 Cpu::step() {
     return 16;
   }
 
-  // JR NZ, i8
-  case 0x20: {
-    const i8 offset = static_cast<i8>(fetch8());
-
-    if (!get_flag(Flag::Z)) {
-      m_registers.pc += offset;
-      return 12;
-    }
-
-    return 8;
-  }
-
   // DAA
   case 0x27: {
     u8 reg_a = m_registers.a;
@@ -997,6 +1030,12 @@ u32 Cpu::step() {
   // DI
   case 0xF3: {
     m_ime = false;
+    return 4;
+  }
+
+  // EI
+  case 0xFB: {
+    m_ime_pending = true;
     return 4;
   }
 
@@ -1099,5 +1138,10 @@ u32 Cpu::step() {
 
     throw std::runtime_error{message.str()};
   }
+  }
+
+  if (m_ime_pending) {
+    m_ime_pending = false;
+    m_ime = true;
   }
 }

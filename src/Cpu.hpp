@@ -87,14 +87,15 @@ private:
   void write_r16(u8 code, u16 value);
 
   void execute_alu(u8 operation, u8 value);
+  u32 handle_interrupts();
 
   u8 inc8(u8 value);
-
   [[nodiscard]] u8 dec8(u8 value);
 
   Bus &m_bus;
   Registers m_registers{};
 
   bool m_ime{};
+  bool m_ime_pending{};
   bool m_halted{};
 };

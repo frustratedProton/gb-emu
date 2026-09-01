@@ -12,6 +12,11 @@ public:
   [[nodiscard]] u8 read(u16 addr) const;
   void write(u16 addr, u8 value);
 
+  [[nodiscard]] u8 get_if() const { return m_io[0x0F]; }
+  void set_if(u8 value) { m_io[0x0F] = value; }
+
+  void request_interrupt(u8 bit) { m_io[0x0F] |= (1 << bit); }
+
 private:
   const std::vector<u8> &m_rom;
   std::array<u8, 0x2000> m_vram{}; // video ram
