@@ -15,7 +15,9 @@ public:
   [[nodiscard]] u8 get_if() const { return m_io[0x0F]; }
   void set_if(u8 value) { m_io[0x0F] = value; }
 
-  void request_interrupt(u8 bit) { m_io[0x0F] |= (1 << bit); }
+  void tick(u32 cycles);
+
+  void request_interrupt(u8 bit);
 
 private:
   const std::vector<u8> &m_rom;
@@ -26,4 +28,5 @@ private:
   std::array<u8, 0x007F> m_hram{}; // high ram
 
   u8 m_ie{};
+  u32 m_ppu_cycles{};
 };

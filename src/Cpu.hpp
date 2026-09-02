@@ -87,6 +87,7 @@ private:
   void write_r16(u8 code, u16 value);
 
   void execute_alu(u8 operation, u8 value);
+  [[nodiscard]] u32 execute_instruction();
   u32 handle_interrupts();
 
   u8 inc8(u8 value);

@@ -2,6 +2,7 @@
 #include "Bus.hpp"
 #include "types.hpp"
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 
@@ -626,6 +627,9 @@ u32 Cpu::handle_interrupts() {
   const u8 if_ = m_bus.read(0xFF0F); // what interrupts are pending
   const u8 pending = ie & if_;       // only care about enabled+pending
 
+  std::cerr << "handle_interrupts: IME=" << m_ime << " IE=0x" << std::hex
+            << (int)ie << " IF=0x" << (int)if_ << '\n';
+
   if (pending == 0)
     return 0;
 
@@ -658,16 +662,7 @@ u32 Cpu::handle_interrupts() {
   return 0;
 }
 
-u32 Cpu::step() {
-  const u32 interrupt_cycles = handle_interrupts();
-
-  if (interrupt_cycles > 0)
-    return interrupt_cycles;
-
-  if (m_halted) {
-    return 4; // temp behaviour
-  }
-
+u32 Cpu::execute_instruction() {
   const u16 instruction_address = m_registers.pc;
   const u8 opcode = fetch8();
 
@@ -1139,9 +1134,26 @@ u32 Cpu::step() {
     throw std::runtime_error{message.str()};
   }
   }
+}
+
+u32 Cpu::step() {
+  const u32 interrupt_cycles = handle_interrupts();
+  if (interrupt_cycles > 0) {
+    std::cerr << "interrupt serviced! new PC=0x" << std::hex << m_registers.pc
+              << '\n';
+    return interrupt_cycles;
+  }
+
+  if (m_halted)
+    return 4; // temp behaviour
+
+  const u32 cycles = execute_instruction();
 
   if (m_ime_pending) {
+    std::cerr << "IME enabled!\n";
     m_ime_pending = false;
     m_ime = true;
   }
+
+  return cycles;
 }

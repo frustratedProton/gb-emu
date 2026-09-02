@@ -56,28 +56,9 @@ u8 Bus::read(u16 addr) const {
 }
 
 void Bus::write(u16 addr, u8 value) {
-  // serial transfer control
-  if (addr == 0xFF02) {
-    m_io.at(0x02);
-
-    // Bit 7: start transfer
-    // Bit 0: use internal clock
-    if ((value & 0x81) == 0x81) {
-      std::cout.put(static_cast<char>(m_io.at(0x01)));
-      std::cout.flush();
-
-      value = static_cast<u8>(value & 0x7F);
-    }
-
-    // assume that transfer is completed immediately
-    m_io.at(0x02) = value;
-    return;
-  }
-
   // cartridge ROM is read-only for ROM-only cartridges
-  if (addr <= 0x7FFF) {
+  if (addr <= 0x7FFF)
     return;
-  }
 
   if (addr <= 0x9FFF) {
     m_vram.at(addr - 0x8000) = value;
@@ -85,9 +66,8 @@ void Bus::write(u16 addr, u8 value) {
   }
 
   // external cartridge RAM is unsupported for now
-  if (addr <= 0xBFFF) {
+  if (addr <= 0xBFFF)
     return;
-  }
 
   if (addr <= 0xDFFF) {
     m_wram.at(addr - 0xC000) = value;
@@ -105,12 +85,27 @@ void Bus::write(u16 addr, u8 value) {
     return;
   }
 
-  if (addr <= 0xFEFF) {
+  if (addr <= 0xFEFF)
     return;
-  }
 
   if (addr <= 0xFF7F) {
     m_io.at(addr - 0xFF00) = value;
+
+    // serial transfer - SC write of 0x81 means "start transfer now"
+    // SB (0xFF01) holds the byte to send
+    // SC (0xFF02) is the control register
+    //
+    // Bit 7: start transfer
+    // Bit 0: use internal clock
+    if (addr == 0xFF02 && value == 0x81) {
+      // assume that transfer is completed immediately
+      std::cout.put(static_cast<char>(m_io.at(0x01)));
+      std::cout.flush();
+
+      // Clear the start-transfer bit after the transfer completes.
+      m_io.at(0x02) = static_cast<u8>(value & 0x7F);
+    }
+
     return;
   }
 
@@ -120,4 +115,18 @@ void Bus::write(u16 addr, u8 value) {
   }
 
   m_ie = value;
+}
+
+void Bus::tick(u32 cycles) {
+  m_ppu_cycles += cycles;
+
+  if (m_ppu_cycles >= 70224) {
+    m_ppu_cycles -= 70224;
+    request_interrupt(0);
+    std::cerr << "VBlank fired! IF=" << std::hex << (int)m_io.at(0x0F) << '\n';
+  }
+}
+
+void Bus::request_interrupt(u8 bit) {
+  m_io.at(0x0F) |= static_cast<u8>(1 << bit);
 }

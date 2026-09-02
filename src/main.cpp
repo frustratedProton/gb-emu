@@ -40,12 +40,13 @@ void run_cpu_trace(const std::vector<u8> &rom,
     const u32 cycles = cpu.step();
     total_cycles += cycles;
 
+    bus.tick(cycles);
+
     std::cout << "    new PC=0x" << std::uppercase << std::hex
               << std::setfill('0') << std::setw(4)
               << static_cast<unsigned>(cpu.registers().pc) << std::dec
               << " cycles=" << cycles << " total=" << total_cycles << '\n';
   }
-
   std::cout << "Stopped after instruction limit\n";
 }
 
