@@ -111,6 +111,7 @@ void Bus::write(u16 addr, u8 value) {
     // Bit 0: use internal clock
     if (addr == 0xFF02 && value == 0x81) {
       std::cout << static_cast<char>(m_io.at(0x01)) << std::flush;
+      m_io.at(0x02) = static_cast<u8>(value & 0x7F);
     }
 
     return;

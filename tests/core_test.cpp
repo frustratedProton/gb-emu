@@ -1442,6 +1442,50 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   assert(cpu.step() == 12);
   assert(cpu.registers().sp == 0xFF00); // SP not modified
+
+  // LD SP, HL
+  cpu.reset_post_boot_dmg();
+  cpu.set_hl(0x1234);
+  bus.write(0xC000, 0xF9);
+  cpu.set_pc(0xC000);
+
+  const u16 af_before_2 = cpu.af();
+
+  assert(cpu.step() == 8);
+  assert(cpu.registers().sp == 0x1234); // SP = HL
+  assert(cpu.hl() == 0x1234);           // HL unchanged
+  assert(cpu.af() == af_before_2);      // flags unchanged
+
+  // STOP
+  cpu.reset_post_boot_dmg();
+  bus.write(0xC000, 0x10);
+  bus.write(0xC001, 0x00); // second byte always 0x00
+  cpu.set_pc(0xC000);
+
+  const u16 af_before_3 = cpu.af();
+  const u16 bc_before_3 = cpu.bc();
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().pc == 0xC002); // consumed both bytes
+  assert(cpu.af() == af_before_3);      // flags unchanged
+  assert(cpu.bc() == bc_before_3);      // registers unchanged
+
+  // LD (u16), SP
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0x1234);
+  bus.write(0xC000, 0x08);
+  bus.write(0xC001, 0x00); // addr low
+  bus.write(0xC002, 0xD0); // addr high -> writes to 0xD000
+  cpu.set_pc(0xC000);
+
+  const u16 sp_store_flags = cpu.af();
+
+  assert(cpu.step() == 20);
+  assert(bus.read(0xD000) == 0x34);     // SP low byte
+  assert(bus.read(0xD001) == 0x12);     // SP high byte
+  assert(cpu.registers().sp == 0x1234); // SP unchanged
+  assert(cpu.af() == sp_store_flags);   // flags unchanged
+  assert(cpu.registers().pc == 0xC003); // advanced past 3 byte instruction
 }
 
 std::vector<u8> create_test_rom() {

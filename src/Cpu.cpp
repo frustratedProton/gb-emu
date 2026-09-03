@@ -951,6 +951,20 @@ u32 Cpu::execute_instruction() {
   case 0x00:
     return 4;
 
+    // STOP
+  case 0x10: {
+    static_cast<void>(fetch8()); // consume the second byte (always 0x00)
+    return 4;
+  }
+
+  // LD (u16), SP
+  case 0x08: {
+    const u16 addr = fetch16();
+    m_bus.write(addr, static_cast<u8>(m_registers.sp & 0xFF));
+    m_bus.write(addr + 1, static_cast<u8>(m_registers.sp >> 8));
+    return 20;
+  }
+
   // JP a16
   // am i supposed to switch case ALL these opcodes????
   case 0xC3: {
@@ -1150,6 +1164,12 @@ u32 Cpu::execute_instruction() {
 
     m_registers.sp = static_cast<u16>(sp + offset);
     return 16;
+  }
+
+  // LD SP, HL
+  case 0xF9: {
+    m_registers.sp = hl();
+    return 8;
   }
 
   default: {
