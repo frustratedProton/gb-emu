@@ -1384,6 +1384,64 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   assert(cpu.step() == 4);
   assert(!cpu.get_flag(Flag::H)); // always cleared after DAA
+
+  // LD HL, SP+i8 positive offset
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0xFFF0);
+  bus.write(0xC000, 0xF8);
+  bus.write(0xC001, 0x04); // offset = +4
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.hl() == 0xFFF4);
+  assert(!cpu.get_flag(Flag::Z));
+  assert(!cpu.get_flag(Flag::N));
+
+  // LD HL, SP+i8 negative offset
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0xFF00);
+  bus.write(0xC000, 0xF8);
+  bus.write(0xC001, 0xFC); // offset = -4 (0xFC as signed = -4)
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.hl() == 0xFEFC);
+  assert(!cpu.get_flag(Flag::Z));
+  assert(!cpu.get_flag(Flag::N));
+
+  // LD HL, SP+i8 half carry
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0xFF0F);
+  bus.write(0xC000, 0xF8);
+  bus.write(0xC001, 0x01); // offset = +1, low nibble 0xF + 0x1 overflows
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.hl() == 0xFF10);
+  assert(cpu.get_flag(Flag::H));
+  assert(!cpu.get_flag(Flag::C));
+
+  // LD HL, SP+i8 carry
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0xFFFF);
+  bus.write(0xC000, 0xF8);
+  bus.write(0xC001, 0x01); // offset = +1, low byte 0xFF + 0x01 overflows
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.hl() == 0x0000);
+  assert(cpu.get_flag(Flag::C));
+  assert(cpu.get_flag(Flag::H));
+
+  // SP unchanged after LD HL, SP+i8
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0xFF00);
+  bus.write(0xC000, 0xF8);
+  bus.write(0xC001, 0x10);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 12);
+  assert(cpu.registers().sp == 0xFF00); // SP not modified
 }
 
 std::vector<u8> create_test_rom() {

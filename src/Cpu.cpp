@@ -627,9 +627,6 @@ u32 Cpu::handle_interrupts() {
   const u8 if_ = m_bus.read(0xFF0F); // what interrupts are pending
   const u8 pending = ie & if_;       // only care about enabled+pending
 
-  std::cerr << "handle_interrupts: IME=" << m_ime << " IE=0x" << std::hex
-            << (int)ie << " IF=0x" << (int)if_ << '\n';
-
   if (pending == 0)
     return 0;
 
@@ -1118,6 +1115,43 @@ u32 Cpu::execute_instruction() {
     return 4;
   }
 
+  // LD HL, SP+i8
+  case 0xF8: {
+    const i8 offset = static_cast<i8>(fetch8());
+    const u16 sp = m_registers.sp;
+    const u16 result = static_cast<u16>(sp + offset);
+
+    const u8 sp_lo = static_cast<u8>(sp & 0xFF);
+    const u8 off_u8 = static_cast<u8>(offset);
+
+    set_flag(Flag::Z, false);
+    set_flag(Flag::N, false);
+    set_flag(Flag::H, ((sp_lo & 0x0F) + (off_u8 & 0x0F)) > 0x0F);
+    set_flag(Flag::C,
+             (static_cast<u16>(sp_lo) + static_cast<u16>(off_u8)) > 0xFF);
+
+    set_hl(result);
+    return 12;
+  }
+
+  // ADD SP, i8
+  case 0xE8: {
+    const i8 offset = static_cast<i8>(fetch8());
+    const u16 sp = m_registers.sp;
+
+    const u8 sp_lo = static_cast<u8>(sp & 0xFF);
+    const u8 off_u8 = static_cast<u8>(offset);
+
+    set_flag(Flag::Z, false);
+    set_flag(Flag::N, false);
+    set_flag(Flag::H, ((sp_lo & 0x0F) + (off_u8 & 0x0F)) > 0x0F);
+    set_flag(Flag::C,
+             (static_cast<u16>(sp_lo) + static_cast<u16>(off_u8)) > 0xFF);
+
+    m_registers.sp = static_cast<u16>(sp + offset);
+    return 16;
+  }
+
   default: {
     std::ostringstream message;
 
@@ -1139,8 +1173,6 @@ u32 Cpu::execute_instruction() {
 u32 Cpu::step() {
   const u32 interrupt_cycles = handle_interrupts();
   if (interrupt_cycles > 0) {
-    std::cerr << "interrupt serviced! new PC=0x" << std::hex << m_registers.pc
-              << '\n';
     return interrupt_cycles;
   }
 
@@ -1150,7 +1182,6 @@ u32 Cpu::step() {
   const u32 cycles = execute_instruction();
 
   if (m_ime_pending) {
-    std::cerr << "IME enabled!\n";
     m_ime_pending = false;
     m_ime = true;
   }

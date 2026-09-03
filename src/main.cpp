@@ -3,7 +3,7 @@
 #include "rom.hpp"
 #include "types.hpp"
 
-#include <cstddef>
+#include <array>
 #include <cstdint>
 #include <exception>
 #include <iomanip>
@@ -11,43 +11,32 @@
 #include <stdexcept>
 #include <vector>
 
-// this is what i am using to implement opcodes for tetris (for now)
-void run_cpu_trace(const std::vector<u8> &rom,
-                   std::size_t maximum_instructions) {
+void run_emulator(const std::vector<u8> &rom) {
   Bus bus{rom};
   Cpu cpu{bus};
 
-  std::uint64_t total_cycles{};
+  std::array<bool, 256> seen_opcodes{};
+  std::uint64_t instruction = 0;
+  const std::uint64_t limit = 100000000;
 
-  for (std::size_t instruction = 0; instruction < maximum_instructions;
-       ++instruction) {
+  while (instruction < limit) {
     const u16 old_pc = cpu.registers().pc;
     const u8 opcode = bus.read(old_pc);
 
-    std::cout << '[' << std::dec << instruction << "] " << std::uppercase
-              << std::hex << std::setfill('0') << "PC=0x" << std::setw(4)
-              << static_cast<unsigned>(old_pc) << " OP=0x" << std::setw(2)
-              << static_cast<unsigned>(opcode) << std::dec << '\n';
-
-    std::cout << "    before: "
-              << "AF=0x" << std::uppercase << std::hex << std::setw(4)
-              << static_cast<unsigned>(cpu.af()) << " BC=0x" << std::setw(4)
-              << static_cast<unsigned>(cpu.bc()) << " DE=0x" << std::setw(4)
-              << static_cast<unsigned>(cpu.de()) << " HL=0x" << std::setw(4)
-              << static_cast<unsigned>(cpu.hl()) << " SP=0x" << std::setw(4)
-              << static_cast<unsigned>(cpu.registers().sp) << std::dec << '\n';
+    if (!seen_opcodes[opcode]) {
+      seen_opcodes[opcode] = true;
+      std::cerr << "new opcode: 0x" << std::hex << std::setw(2)
+                << std::setfill('0') << (int)opcode << " at PC=0x"
+                << std::setw(4) << (int)old_pc << '\n';
+    }
 
     const u32 cycles = cpu.step();
-    total_cycles += cycles;
-
     bus.tick(cycles);
+    instruction++;
 
-    std::cout << "    new PC=0x" << std::uppercase << std::hex
-              << std::setfill('0') << std::setw(4)
-              << static_cast<unsigned>(cpu.registers().pc) << std::dec
-              << " cycles=" << cycles << " total=" << total_cycles << '\n';
+    if (cpu.registers().pc == old_pc)
+      break;
   }
-  std::cout << "Stopped after instruction limit\n";
 }
 
 int main(int argc, char *argv[]) {
@@ -59,25 +48,14 @@ int main(int argc, char *argv[]) {
 
     const std::vector<u8> rom = load_rom(argv[1]);
 
-    // ZIP archives normally begin with the ASCII characters "PK".
-    if (rom.size() >= 2 && rom.at(0) == 0x50 && rom.at(1) == 0x4B) {
-      throw std::runtime_error{"The provided file is a ZIP archive. "
-                               "Extract the .gb file first."};
-    }
+    if (rom.size() >= 2 && rom.at(0) == 0x50 && rom.at(1) == 0x4B)
+      throw std::runtime_error{"ZIP archive detected, extract .gb first"};
 
-    if (rom.size() < 0x150) {
-      throw std::runtime_error{
-          "File is too small to contain a Game Boy cartridge header"};
-    }
+    if (rom.size() < 0x150)
+      throw std::runtime_error{"ROM too small to contain header"};
 
-    std::cout << "Loaded " << rom.size() << " bytes\n";
+    run_emulator(rom);
 
-    print_title(rom);
-
-    std::cout << "Header checksum: "
-              << (valid_header_checksum(rom) ? "OK" : "FAILED") << '\n';
-
-    run_cpu_trace(rom, 10000000);
   } catch (const std::exception &error) {
     std::cerr << "Error: " << error.what() << '\n';
     return 1;

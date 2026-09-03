@@ -43,6 +43,18 @@ u8 Bus::read(u16 addr) const {
 
   // I/O registers
   if (addr <= 0xFF7F) {
+    // fake LY - current scanlines
+    if (addr == 0xFF44) {
+      return static_cast<u8>(m_ppu_cycles / 456 % 154);
+    }
+
+    // fake STAT - PPU
+    if (addr == 0xFF41) {
+      const u8 ly = static_cast<u8>((m_ppu_cycles / 456) % 154);
+      const u8 mode = ly >= 144 ? 1 : 3;
+      return (m_io.at(0x41) & 0xFC) | mode;
+    }
+
     return m_io.at(addr - 0xFF00);
   }
 
@@ -98,12 +110,7 @@ void Bus::write(u16 addr, u8 value) {
     // Bit 7: start transfer
     // Bit 0: use internal clock
     if (addr == 0xFF02 && value == 0x81) {
-      // assume that transfer is completed immediately
-      std::cout.put(static_cast<char>(m_io.at(0x01)));
-      std::cout.flush();
-
-      // Clear the start-transfer bit after the transfer completes.
-      m_io.at(0x02) = static_cast<u8>(value & 0x7F);
+      std::cout << static_cast<char>(m_io.at(0x01)) << std::flush;
     }
 
     return;
@@ -123,7 +130,6 @@ void Bus::tick(u32 cycles) {
   if (m_ppu_cycles >= 70224) {
     m_ppu_cycles -= 70224;
     request_interrupt(0);
-    std::cerr << "VBlank fired! IF=" << std::hex << (int)m_io.at(0x0F) << '\n';
   }
 }
 
