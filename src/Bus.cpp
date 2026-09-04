@@ -101,6 +101,18 @@ void Bus::write(u16 addr, u8 value) {
     return;
 
   if (addr <= 0xFF7F) {
+    // writing any value to DIV resets it to 0
+    if (addr == 0xFF04) {
+      m_io.at(0x04) = 0;
+      m_timer_cycles = 0;
+      return;
+    }
+
+    if (addr == 0xFF07) {
+      std::cerr << "TAC write: 0x" << std::hex << (int)value
+                << " timer_enabled=" << ((value & 0x04) ? "yes" : "no") << '\n';
+    }
+
     m_io.at(addr - 0xFF00) = value;
 
     // serial transfer - SC write of 0x81 means "start transfer now"
@@ -130,7 +142,45 @@ void Bus::tick(u32 cycles) {
 
   if (m_ppu_cycles >= 70224) {
     m_ppu_cycles -= 70224;
-    request_interrupt(0);
+    request_interrupt(0); // VBlank
+  }
+
+  // DIV increments at 16384 Hz
+  // CPU runs at 4194304 Hz
+  // 4194304 / 16384 = 256 cycles per DIV increment
+  m_div_cycles += cycles;
+  while (m_div_cycles >= 256) {
+    m_div_cycles -= 256;
+    m_io.at(0x04) = static_cast<u8>(m_io.at(0x04) + 1); // 0xFF04 = DIV
+  }
+
+  // TIMER
+  const u8 tac = m_io.at(0x07);
+  const bool timer_enabled = (tac & 0x04) != 0;
+
+  if (timer_enabled) {
+    m_timer_cycles += cycles;
+
+    static constexpr u32 thresholds[4] = {1024, 4, 16, 64};
+    const u32 threshold = thresholds[tac & 0x03];
+
+    while (m_timer_cycles >= threshold) {
+      m_timer_cycles -= threshold;
+
+      const u8 tima = m_io.at(0x05);
+
+      // temporary: log every TIMA increment
+      std::cerr << "TIMA: " << std::dec << (int)tima << " TAC: 0x" << std::hex
+                << (int)tac << '\n';
+
+      if (tima == 0xFF) {
+        m_io.at(0x05) = m_io.at(0x06);
+        request_interrupt(2);
+        std::cerr << "TIMA overflow, interrupt requested\n";
+      } else {
+        m_io.at(0x05) = static_cast<u8>(tima + 1);
+      }
+    }
   }
 }
 

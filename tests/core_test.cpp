@@ -1486,6 +1486,115 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   assert(cpu.registers().sp == 0x1234); // SP unchanged
   assert(cpu.af() == sp_store_flags);   // flags unchanged
   assert(cpu.registers().pc == 0xC003); // advanced past 3 byte instruction
+
+  // RST 00h
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0xDFFF);
+  bus.write(0xC000, 0xC7);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().pc == 0x0000);
+  assert(cpu.registers().sp == 0xDFFD);
+  assert(bus.read(0xDFFE) == 0xC0); // high byte of return address
+  assert(bus.read(0xDFFD) == 0x01); // low byte of return address
+
+  // RST 38h
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0xDFFF);
+  bus.write(0xC000, 0xFF);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().pc == 0x0038);
+
+  // RST 28h
+  cpu.reset_post_boot_dmg();
+  cpu.set_sp(0xDFFF);
+  bus.write(0xC000, 0xEF);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 16);
+  assert(cpu.registers().pc == 0x0028);
+
+  // LD A, (FF00+C)
+  cpu.reset_post_boot_dmg();
+  bus.write(0xFF42, 0xAB); // put value at 0xFF00 + 0x42
+  cpu.set_bc(0x0042);      // C = 0x42
+  bus.write(0xC000, 0xF2);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(cpu.registers().a == 0xAB);
+  assert(cpu.registers().c == 0x42); // C unchanged
+
+  // LD (FF00+C), A
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0xCD00); // A = 0xCD
+  cpu.set_bc(0x0042); // C = 0x42
+  bus.write(0xC000, 0xE2);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 8);
+  assert(bus.read(0xFF42) == 0xCD);
+  assert(cpu.registers().a == 0xCD); // A unchanged
+  assert(cpu.registers().c == 0x42); // C unchanged
+
+  // CPL
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0xF0B0); // A = 0xF0
+  bus.write(0xC000, 0x2F);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0x0F); // 0xF0 flipped = 0x0F
+  assert(cpu.get_flag(Flag::N));     // always set
+  assert(cpu.get_flag(Flag::H));     // always set
+  assert(cpu.get_flag(Flag::Z));     // Z unmodified, was set before
+  assert(cpu.get_flag(Flag::C));     // C unmodified, was set before
+
+  // CPL all zeros
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x0000); // A = 0x00
+  bus.write(0xC000, 0x2F);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.registers().a == 0xFF); // 0x00 flipped = 0xFF
+  assert(cpu.get_flag(Flag::N));
+  assert(cpu.get_flag(Flag::H));
+
+  // SCF
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x0080); // Z set, C clear
+  bus.write(0xC000, 0x37);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.get_flag(Flag::C));  // carry set
+  assert(!cpu.get_flag(Flag::N)); // cleared
+  assert(!cpu.get_flag(Flag::H)); // cleared
+  assert(cpu.get_flag(Flag::Z));  // Z unmodified
+
+  // CCF with carry clear
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x0000); // C clear
+  bus.write(0xC000, 0x3F);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(cpu.get_flag(Flag::C)); // was clear, now set
+  assert(!cpu.get_flag(Flag::N));
+  assert(!cpu.get_flag(Flag::H));
+
+  // CCF with carry set
+  cpu.reset_post_boot_dmg();
+  cpu.set_af(0x0010); // C set
+  bus.write(0xC000, 0x3F);
+  cpu.set_pc(0xC000);
+
+  assert(cpu.step() == 4);
+  assert(!cpu.get_flag(Flag::C)); // was set, now clear
 }
 
 std::vector<u8> create_test_rom() {

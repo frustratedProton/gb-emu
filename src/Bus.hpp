@@ -29,4 +29,6 @@ private:
 
   u8 m_ie{};
   u32 m_ppu_cycles{};
+  u32 m_div_cycles{};
+  u32 m_timer_cycles{};
 };

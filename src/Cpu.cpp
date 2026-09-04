@@ -946,10 +946,26 @@ u32 Cpu::execute_instruction() {
     return 12;
   }
 
+  // RST
+  if ((opcode & 0xC7) == 0xC7) {
+    const u8 target = opcode & 0x38;
+    push16(m_registers.pc);
+    m_registers.pc = static_cast<u16>(target);
+    return 16;
+  }
+
   switch (opcode) {
   // NOP
   case 0x00:
     return 4;
+
+  // CPL
+  case 0x2F: {
+    m_registers.a = ~m_registers.a;
+    set_flag(Flag::N, true);
+    set_flag(Flag::H, true);
+    return 4;
+  }
 
     // STOP
   case 0x10: {
@@ -963,6 +979,28 @@ u32 Cpu::execute_instruction() {
     m_bus.write(addr, static_cast<u8>(m_registers.sp & 0xFF));
     m_bus.write(addr + 1, static_cast<u8>(m_registers.sp >> 8));
     return 20;
+  }
+
+  // SCF
+  case 0x37: {
+    set_flag(Flag::N, false);
+    set_flag(Flag::H, false);
+    set_flag(Flag::C, true); // set carry
+    return 4;
+  }
+
+  // CCF
+  case 0x3F: {
+    set_flag(Flag::N, false);
+    set_flag(Flag::H, false);
+    set_flag(Flag::C, !get_flag(Flag::C)); // flip carry
+    return 4;
+  }
+
+  // HALT
+  case 0x76: {
+    m_halted = true;
+    return 4;
   }
 
   // JP a16
@@ -1166,9 +1204,21 @@ u32 Cpu::execute_instruction() {
     return 16;
   }
 
+  // LD (FF00+C), A
+  case 0xE2: {
+    m_bus.write(0xFF00 + m_registers.c, m_registers.a);
+    return 8;
+  }
+
   // LD SP, HL
   case 0xF9: {
     m_registers.sp = hl();
+    return 8;
+  }
+
+  // LD A, (FF00+C)
+  case 0xF2: {
+    m_registers.a = m_bus.read(0xFF00 + m_registers.c);
     return 8;
   }
 
