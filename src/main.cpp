@@ -3,40 +3,64 @@
 #include "rom.hpp"
 #include "types.hpp"
 
+#include "raylib.h"
+
 #include <array>
-#include <cstdint>
 #include <exception>
-#include <iomanip>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+
+static constexpr int GB_WIDTH = 160;
+static constexpr int GB_HEIGHT = 144;
+static constexpr int SCALE = 3;
 
 void run_emulator(const std::vector<u8> &rom) {
   Bus bus{rom};
   Cpu cpu{bus};
 
-  std::array<bool, 256> seen_opcodes{};
-  std::uint64_t instruction = 0;
-  const std::uint64_t limit = 100000000;
+  std::array<u32, GB_WIDTH * GB_HEIGHT> framebuffer{};
 
-  while (instruction < limit) {
-    const u16 old_pc = cpu.registers().pc;
-    const u8 opcode = bus.read(old_pc);
+  for (auto &pixel : framebuffer) {
+    pixel = 0x00FF00FF;
+  }
 
-    if (!seen_opcodes[opcode]) {
-      seen_opcodes[opcode] = true;
-      std::cerr << "new opcode: 0x" << std::hex << std::setw(2)
-                << std::setfill('0') << (int)opcode << " at PC=0x"
-                << std::setw(4) << (int)old_pc << '\n';
+  InitWindow(GB_WIDTH, GB_HEIGHT, "GameBoy Emulator");
+  SetTargetFPS(60);
+  Image img = GenImageColor(GB_WIDTH, GB_HEIGHT, BLACK);
+  Texture2D texture = LoadTextureFromImage(img);
+  UnloadImage(img);
+
+  u64 instruction = 0;
+  const u64 limit = 100000000;
+
+  while (!WindowShouldClose()) {
+    // run one frame worth of cycles
+    // 4194304 / 60 = ~69905 cycles per frame
+    u32 frame_cycles = 0;
+    while (frame_cycles < 69905 && instruction < limit) {
+      const u16 old_pc = cpu.registers().pc;
+
+      const u32 cycles = cpu.step();
+      bus.tick(cycles);
+      frame_cycles += cycles;
+      instruction++;
+
+      if (cpu.registers().pc == old_pc)
+        break;
     }
 
-    const u32 cycles = cpu.step();
-    bus.tick(cycles);
-    instruction++;
+    // upload framebuffer to texture and draw
+    UpdateTexture(texture, framebuffer.data());
 
-    if (cpu.registers().pc == old_pc)
-      break;
+    BeginDrawing();
+    ClearBackground(BLACK);
+    DrawTextureEx(texture, {0, 0}, 0.0f, static_cast<float>(SCALE), WHITE);
+    EndDrawing();
   }
+
+  UnloadTexture(texture);
+  CloseWindow();
 }
 
 int main(int argc, char *argv[]) {
@@ -49,10 +73,10 @@ int main(int argc, char *argv[]) {
     const std::vector<u8> rom = load_rom(argv[1]);
 
     if (rom.size() >= 2 && rom.at(0) == 0x50 && rom.at(1) == 0x4B)
-      throw std::runtime_error{"ZIP archive detected, extract .gb first"};
+      throw std::runtime_error{"ZIP archive detected"};
 
     if (rom.size() < 0x150)
-      throw std::runtime_error{"ROM too small to contain header"};
+      throw std::runtime_error{"ROM too small"};
 
     run_emulator(rom);
 

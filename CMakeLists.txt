@@ -20,7 +20,12 @@ add_executable(gbemu
     src/main.cpp
 )
 
-target_link_libraries(gbemu PRIVATE gbcore)
+find_package(raylib REQUIRED)
+
+target_link_libraries(gbemu PRIVATE
+    gbcore
+    raylib
+)
 
 add_executable(gbemu_tests
     tests/core_test.cpp
