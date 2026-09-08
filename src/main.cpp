@@ -15,14 +15,21 @@ static constexpr int GB_WIDTH = 160;
 static constexpr int GB_HEIGHT = 144;
 static constexpr int SCALE = 3;
 
+static constexpr Color GB_COLORS[4] = {
+    {0xE0, 0xF8, 0xD0, 0xFF}, // 0 = lightest (white-ish)
+    {0x88, 0xC0, 0x70, 0xFF}, // 1 = light green
+    {0x34, 0x68, 0x56, 0xFF}, // 2 = dark green
+    {0x08, 0x18, 0x20, 0xFF}, // 3 = darkest (black-ish)
+};
+
 void run_emulator(const std::vector<u8> &rom) {
   Bus bus{rom};
   Cpu cpu{bus};
 
-  std::array<u32, GB_WIDTH * GB_HEIGHT> framebuffer{};
+  std::array<Color, GB_WIDTH * GB_HEIGHT> framebuffer{};
 
   for (auto &pixel : framebuffer) {
-    pixel = 0x00FF00FF;
+    pixel = GB_COLORS[0];
   }
 
   InitWindow(GB_WIDTH, GB_HEIGHT, "GameBoy Emulator");
