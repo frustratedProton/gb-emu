@@ -55,7 +55,8 @@ u8 Bus::read(u16 addr) const {
       return (m_io.at(0x41) & 0xFC) | mode;
     }
 
-    return m_io.at(addr - 0xFF00);
+    return m_io.at(addr - 0xFF00); // LY and STAT now come from IO array
+                                   // PPU writes to them directly
   }
 
   // High RAM
@@ -138,6 +139,8 @@ void Bus::write(u16 addr, u8 value) {
 }
 
 void Bus::tick(u32 cycles) {
+  // keep m_ppu_cycles for now, PPU handles VBlank interrupt itself
+  // Bus tick no longer fires VBlank, PPU does that
   m_ppu_cycles += cycles;
 
   if (m_ppu_cycles >= 70224) {

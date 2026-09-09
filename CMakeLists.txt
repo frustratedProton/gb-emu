@@ -10,6 +10,7 @@ add_library(gbcore
     src/Bus.cpp
     src/Cpu.cpp
     src/rom.cpp
+    src/Ppu.cpp
 )
 
 target_include_directories(gbcore PUBLIC
