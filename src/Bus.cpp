@@ -114,6 +114,11 @@ void Bus::write(u16 addr, u8 value) {
                 << " timer_enabled=" << ((value & 0x04) ? "yes" : "no") << '\n';
     }
 
+    // temporary
+    if (addr == 0xFF40) {
+      std::cerr << "LCDC write: 0x" << std::hex << (int)value << '\n';
+    }
+
     m_io.at(addr - 0xFF00) = value;
 
     // serial transfer - SC write of 0x81 means "start transfer now"

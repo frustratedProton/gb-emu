@@ -8,14 +8,6 @@ bool Ppu::tick(u32 cycles) {
   // by checking LCDC bit 7
   const u8 lcdc = m_bus.read(0xFF40);
 
-  // temporary
-  static bool printed = false;
-
-  if (!printed) {
-    printed = true;
-    std::cerr << "LCDC: 0x" << std::hex << (int)lcdc << '\n';
-  }
-
   if ((lcdc & 0x80) == 0) {
     return false; // LCD false, return
   }
@@ -35,7 +27,7 @@ bool Ppu::tick(u32 cycles) {
 
   case Mode::Drawing: {
     // 172 cycles then render and move to HBlank
-    if (cycles >= 172) {
+    if (m_cycles >= 172) {
       m_cycles -= 172;
 
       render_scanline();
@@ -106,12 +98,8 @@ bool Ppu::tick(u32 cycles) {
 void Ppu::render_scanline() {
   const u8 lcdc = m_bus.read(0xFF40);
 
-  static bool printed = false;
-  if (!printed) {
-    printed = true;
-    std::cerr << "render_scanline called, LY=" << std::dec << (int)m_ly
-              << " LCDC=0x" << std::hex << (int)lcdc << '\n';
-  }
+  std::cerr << "render LY=" << std::dec << (int)m_ly << " LCDC=0x" << std::hex
+            << (int)lcdc << '\n';
 
   if (lcdc & 0x01) {
     render_background_scanline(m_ly);
@@ -119,6 +107,24 @@ void Ppu::render_scanline() {
 }
 
 void Ppu::render_background_scanline(u8 ly) {
+
+  if (ly == 0) {
+    const u8 lcdc = m_bus.read(0xFF40);
+    const u16 map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
+
+    std::cerr << "tile map sample: ";
+    for (int i = 0; i < 8; i++) {
+      std::cerr << std::hex << (int)m_bus.read(map_base + i) << " ";
+    }
+    std::cerr << '\n';
+
+    std::cerr << "VRAM 0x8000 sample: ";
+    for (int i = 0; i < 8; i++) {
+      std::cerr << std::hex << (int)m_bus.read(0x8000 + i) << " ";
+    }
+    std::cerr << '\n';
+  }
+
   const u8 lcdc = m_bus.read(0xFF40);
   const u8 scx = m_bus.read(0xFF43);
   const u8 scy = m_bus.read(0xFF42);
