@@ -27,12 +27,13 @@ void run_emulator(const std::vector<u8> &rom) {
   UnloadImage(img);
 
   while (!WindowShouldClose()) {
-    std::uint32_t frame_cycles = 0;
-    while (frame_cycles < 70224) {
+    bool frame_ready = false;
+
+    while (!frame_ready) {
       const u32 cycles = cpu.step();
+
       bus.tick(cycles);
-      ppu.tick(cycles);
-      frame_cycles += cycles;
+      frame_ready = ppu.tick(cycles);
     }
 
     UpdateTexture(texture, ppu.framebuffer().data());

@@ -43,16 +43,34 @@ u8 Bus::read(u16 addr) const {
 
   // I/O registers
   if (addr <= 0xFF7F) {
+    // TODO: REMOVE THIS IF DEBUGGING WORKS
+
     // fake LY - current scanlines
-    if (addr == 0xFF44) {
-      return static_cast<u8>(m_ppu_cycles / 456 % 154);
-    }
+    // if (addr == 0xFF44) {
+    //   return static_cast<u8>(m_ppu_cycles / 456 % 154);
+    // }
 
     // fake STAT - PPU
-    if (addr == 0xFF41) {
-      const u8 ly = static_cast<u8>((m_ppu_cycles / 456) % 154);
-      const u8 mode = ly >= 144 ? 1 : 3;
-      return (m_io.at(0x41) & 0xFC) | mode;
+    // if (addr == 0xFF41) {
+    //   const u8 ly = static_cast<u8>((m_ppu_cycles / 456) % 154);
+    //   const u8 mode = ly >= 144 ? 1 : 3;
+    //   return (m_io.at(0x41) & 0xFC) | mode;
+    // }
+
+    if (addr == 0xFF00) {
+      const u8 select = m_io[0x00] & 0x30;
+
+      u8 input = 0x0F;
+
+      if ((select & 0x10) == 0) {
+        input &= m_joypad_directions;
+      }
+
+      if ((select & 0x20) == 0) {
+        input &= m_joypad_buttons;
+      }
+
+      return static_cast<u8>(0xC0 | select | input);
     }
 
     return m_io.at(addr - 0xFF00); // LY and STAT now come from IO array
@@ -101,7 +119,24 @@ void Bus::write(u16 addr, u8 value) {
   if (addr <= 0xFEFF)
     return;
 
+  if (addr == 0xFF46) {
+    const u16 source = static_cast<u16>(value) << 8;
+
+    for (u16 i = 0; i < 0xA0; ++i) {
+      m_oam.at(i) = read(static_cast<u16>(source + i));
+    }
+
+    return;
+  }
+
   if (addr <= 0xFF7F) {
+    if (addr == 0xFF00) {
+      // Only bits 4 and 5 are writable.
+      m_io[0x00] = static_cast<u8>((m_io[0x00] & 0xCF) | (value & 0x30));
+
+      return;
+    }
+
     // writing any value to DIV resets it to 0
     if (addr == 0xFF04) {
       m_io.at(0x04) = 0;
@@ -144,14 +179,15 @@ void Bus::write(u16 addr, u8 value) {
 }
 
 void Bus::tick(u32 cycles) {
+  // TODO: REMVOE THIS TOO
   // keep m_ppu_cycles for now, PPU handles VBlank interrupt itself
   // Bus tick no longer fires VBlank, PPU does that
-  m_ppu_cycles += cycles;
+  //   m_ppu_cycles += cycles;
 
-  if (m_ppu_cycles >= 70224) {
-    m_ppu_cycles -= 70224;
-    request_interrupt(0); // VBlank
-  }
+  //   if (m_ppu_cycles >= 70224) {
+  //     m_ppu_cycles -= 70224;
+  //     request_interrupt(0); // VBlank
+  //   }
 
   // DIV increments at 16384 Hz
   // CPU runs at 4194304 Hz
@@ -169,7 +205,7 @@ void Bus::tick(u32 cycles) {
   if (timer_enabled) {
     m_timer_cycles += cycles;
 
-    static constexpr u32 thresholds[4] = {1024, 4, 16, 64};
+    static constexpr u32 thresholds[4] = {1024, 16, 64, 256};
     const u32 threshold = thresholds[tac & 0x03];
 
     while (m_timer_cycles >= threshold) {

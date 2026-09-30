@@ -3,14 +3,53 @@
 #include "types.hpp"
 #include <iostream>
 
+Ppu::Ppu(Bus &bus) : m_bus(bus) {
+  m_bus.write(0xFF44, 0);
+  set_mode(Mode::HBlank);
+}
+
+void Ppu::set_mode(Mode mode) {
+  m_mode = mode;
+
+  u8 stat = m_bus.read(0xFF41);
+  stat = static_cast<u8>((stat & 0xFC) | static_cast<u8>(mode));
+
+  m_bus.write(0xFF41, stat);
+}
+
 bool Ppu::tick(u32 cycles) {
   // check if LCD is enabled
   // by checking LCDC bit 7
   const u8 lcdc = m_bus.read(0xFF40);
+  const bool lcd_enabled = (lcdc & 0x80) != 0;
 
-  if ((lcdc & 0x80) == 0) {
-    return false; // LCD false, return
+  if (!lcd_enabled) {
+    if (m_lcd_enabled) {
+      // LCD was just disabled. Reset PPU timing.
+      m_lcd_enabled = false;
+      m_cycles = 0;
+      m_ly = 0;
+
+      m_bus.write(0xFF44, 0);
+      set_mode(Mode::HBlank);
+    }
+
+    return false;
   }
+
+  if (!m_lcd_enabled) {
+    // LCD was just enabled. Start at LY=0, mode 2.
+    m_lcd_enabled = true;
+    m_cycles = 0;
+    m_ly = 0;
+
+    m_bus.write(0xFF44, 0);
+    set_mode(Mode::OAMScan);
+  }
+
+  //   if ((lcdc & 0x80) == 0) {
+  //     return false; // LCD false, return
+  //   }
 
   m_cycles += cycles;
   bool frame_ready = false;
@@ -20,7 +59,7 @@ bool Ppu::tick(u32 cycles) {
     // 80 cycles then move to drawing
     if (m_cycles >= 80) {
       m_cycles -= 80;
-      m_mode = Mode::Drawing;
+      set_mode(Mode::Drawing);
     }
     break;
   }
@@ -31,13 +70,7 @@ bool Ppu::tick(u32 cycles) {
       m_cycles -= 172;
 
       render_scanline();
-
-      m_mode = Mode::HBlank;
-
-      // update STAT mode bits
-      u8 stat = m_bus.read(0xFF41);
-      stat = (stat & 0xFC) | static_cast<u8>(Mode::HBlank);
-      m_bus.write(0xFF41, stat);
+      set_mode(Mode::HBlank);
     }
     break;
   }
@@ -46,25 +79,16 @@ bool Ppu::tick(u32 cycles) {
     // 204 cycles then move to scanline
     if (m_cycles >= 204) {
       m_cycles -= 204;
-      m_ly++;
+      ++m_ly;
 
       m_bus.write(0xFF44, m_ly);
 
       if (m_ly == 144) {
-        m_mode = Mode::VBlank;
-        m_bus.request_interrupt(0); // VBlank interrupt
-
-        u8 stat = m_bus.read(0xFF41);
-        stat = (stat & 0xFC) | static_cast<u8>(Mode::VBlank);
-        m_bus.write(0xFF41, stat);
-
+        set_mode(Mode::VBlank);
+        m_bus.request_interrupt(0);
         frame_ready = true;
       } else {
-        m_mode = Mode::OAMScan;
-
-        u8 stat = m_bus.read(0xFF41);
-        stat = (stat & 0xFC) | static_cast<u8>(Mode::OAMScan);
-        m_bus.write(0xFF41, stat);
+        set_mode(Mode::OAMScan);
       }
     }
     break;
@@ -74,18 +98,14 @@ bool Ppu::tick(u32 cycles) {
     // 10 lines of VBlank, each line is 456 cycles
     if (m_cycles >= 456) {
       m_cycles -= 456;
-      m_ly++;
+      ++m_ly;
 
       m_bus.write(0xFF44, m_ly);
 
       if (m_ly == 154) {
         m_ly = 0;
         m_bus.write(0xFF44, 0);
-        m_mode = Mode::OAMScan;
-
-        u8 stat = m_bus.read(0xFF41);
-        stat = (stat & 0xFC) | static_cast<u8>(Mode::OAMScan);
-        m_bus.write(0xFF41, stat);
+        set_mode(Mode::OAMScan);
       }
     }
     break;
@@ -97,9 +117,17 @@ bool Ppu::tick(u32 cycles) {
 
 void Ppu::render_scanline() {
   const u8 lcdc = m_bus.read(0xFF40);
+  const u8 palette = m_bus.read(0xFF47);
 
   std::cerr << "render LY=" << std::dec << (int)m_ly << " LCDC=0x" << std::hex
             << (int)lcdc << '\n';
+
+  const Color background_color = get_color(0, palette);
+
+  const auto begin = m_framebuffer.begin() + m_ly * GB_WIDTH;
+  const auto end = begin + GB_WIDTH;
+
+  std::fill(begin, end, background_color);
 
   if (lcdc & 0x01) {
     render_background_scanline(m_ly);

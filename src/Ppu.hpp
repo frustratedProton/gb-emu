@@ -20,7 +20,8 @@ class Bus;
 
 class Ppu {
 public:
-  explicit Ppu(Bus &bus) : m_bus(bus) {};
+  //   explicit Ppu(Bus &bus) : m_bus(bus) {};
+  explicit Ppu(Bus &bus);
 
   bool tick(u32 cycles);
 
@@ -52,4 +53,8 @@ private:
   };
 
   Mode m_mode{Mode::OAMScan};
+
+  void set_mode(Mode mode);
+
+  bool m_lcd_enabled{};
 };

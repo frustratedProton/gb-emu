@@ -17,6 +17,7 @@ void Cpu::reset_post_boot_dmg() {
 
   m_ime = false;
   m_halted = false;
+  m_ime_pending = false;
 }
 
 u16 Cpu::af() const {
@@ -643,6 +644,10 @@ u32 Cpu::handle_interrupts() {
 
     m_ime = false;
 
+    std::cerr << "INTERRUPT bit=" << std::dec << static_cast<unsigned>(bit)
+              << " entered from PC=0x" << std::uppercase << std::hex
+              << std::setfill('0') << std::setw(4) << m_registers.pc << '\n';
+
     push16(m_registers.pc);
 
     static constexpr u16 vectors[5] = {
@@ -663,10 +668,36 @@ u32 Cpu::execute_instruction() {
   const u16 instruction_address = m_registers.pc;
   const u8 opcode = fetch8();
 
+  if (instruction_address >= 0x0220 && instruction_address <= 0x0245) {
+    std::cerr << "TRACE PC=0x" << std::uppercase << std::hex
+              << std::setfill('0') << std::setw(4) << instruction_address
+              << " opcode=0x" << std::setw(2) << static_cast<unsigned>(opcode)
+              << " AF=0x" << std::setw(4) << af() << " BC=0x" << std::setw(4)
+              << bc() << " DE=0x" << std::setw(4) << de() << " HL=0x"
+              << std::setw(4) << hl() << " SP=0x" << std::setw(4)
+              << m_registers.sp << '\n';
+  }
+
+  if (instruction_address == 0x0000 || instruction_address == 0x0008 ||
+      instruction_address == 0x0100 || instruction_address == 0x0150 ||
+      instruction_address == 0x020C) {
+    std::cerr << "POSSIBLE RESET PC=0x" << std::uppercase << std::hex
+              << std::setfill('0') << std::setw(4) << instruction_address
+              << " opcode=0x" << std::setw(2) << static_cast<unsigned>(opcode)
+              << " SP=0x" << std::setw(4) << m_registers.sp << '\n';
+  }
+
   // LD r8, d8
   if ((opcode & 0xC7) == 0x06) {
     const u8 dest = static_cast<u8>((opcode >> 3) & 0x07);
     const u8 value = fetch8();
+
+    if (dest == 6 && hl() == 0xFF40) {
+      std::cerr << "LCDC write from PC=0x" << std::uppercase << std::hex
+                << std::setfill('0') << std::setw(4) << instruction_address
+                << " value=0x" << std::setw(2) << static_cast<unsigned>(value)
+                << '\n';
+    }
 
     write_r8(dest, value);
 
@@ -716,6 +747,14 @@ u32 Cpu::execute_instruction() {
     const u8 src = static_cast<u8>(opcode & 0x07);
 
     const u8 value = read_r8(src);
+
+    if (dest == 6 && hl() == 0xFF40) {
+      std::cerr << "LCDC write from PC=0x" << std::uppercase << std::hex
+                << std::setfill('0') << std::setw(4) << instruction_address
+                << " value=0x" << std::setw(2) << static_cast<unsigned>(value)
+                << '\n';
+    }
+
     write_r8(dest, value);
 
     if (src == 6 || dest == 6)
@@ -1066,14 +1105,21 @@ u32 Cpu::execute_instruction() {
 
   // RETI
   case 0xD9: {
-    m_registers.pc = pop16();
+    const u16 return_address = pop16();
+
+    std::cerr << "RETI -> PC=0x" << std::uppercase << std::hex
+              << std::setfill('0') << std::setw(4) << return_address << '\n';
+
+    m_registers.pc = return_address;
     m_ime = true;
+    m_ime_pending = false;
     return 16;
   }
 
   // DI
   case 0xF3: {
     m_ime = false;
+    m_ime_pending = false;
     return 4;
   }
 
@@ -1088,6 +1134,13 @@ u32 Cpu::execute_instruction() {
     const u8 offset = fetch8();
     const u16 addr = 0xFF00 + offset;
 
+    if (addr == 0xFF40) {
+      std::cerr << "LCDC write from PC=0x" << std::uppercase << std::hex
+                << std::setfill('0') << std::setw(4) << instruction_address
+                << " value=0x" << std::setw(2)
+                << static_cast<unsigned>(m_registers.a) << '\n';
+    }
+
     m_bus.write(addr, m_registers.a);
 
     return 12;
@@ -1096,6 +1149,13 @@ u32 Cpu::execute_instruction() {
   // LD (a16), A
   case 0xEA: {
     const u16 addr = fetch16();
+    if (addr == 0xFF40) {
+      std::cerr << "LCDC write from PC=0x" << std::uppercase << std::hex
+                << std::setfill('0') << std::setw(4) << instruction_address
+                << " value=0x" << std::setw(2)
+                << static_cast<unsigned>(m_registers.a) << '\n';
+    }
+
     m_bus.write(addr, m_registers.a);
     return 16;
   }
@@ -1206,7 +1266,16 @@ u32 Cpu::execute_instruction() {
 
   // LD (FF00+C), A
   case 0xE2: {
-    m_bus.write(0xFF00 + m_registers.c, m_registers.a);
+    const u16 addr = static_cast<u16>(0xFF00 + m_registers.c);
+
+    if (addr == 0xFF40) {
+      std::cerr << "LCDC write from PC=0x" << std::uppercase << std::hex
+                << std::setfill('0') << std::setw(4) << instruction_address
+                << " value=0x" << std::setw(2)
+                << static_cast<unsigned>(m_registers.a) << '\n';
+    }
+
+    m_bus.write(addr, m_registers.a);
     return 8;
   }
 
@@ -1240,19 +1309,48 @@ u32 Cpu::execute_instruction() {
   }
 }
 
+// u32 Cpu::step() {
+//   const u32 interrupt_cycles = handle_interrupts();
+//   if (interrupt_cycles > 0) {
+//     return interrupt_cycles;
+//   }
+
+//   if (m_halted)
+//     return 4; // temp behaviour
+
+//   const u32 cycles = execute_instruction();
+
+//   if (m_ime_pending) {
+//     m_ime_pending = false;
+//     m_ime = true;
+//   }
+
+//   return cycles;
+// }
+
 u32 Cpu::step() {
-  const u32 interrupt_cycles = handle_interrupts();
-  if (interrupt_cycles > 0) {
-    return interrupt_cycles;
+  const bool enable_after_instruction = m_ime_pending;
+
+  // Consume the pending EI state.
+  m_ime_pending = false;
+
+  // If EI was executed on the previous instruction, do not service
+  // an interrupt yet. Execute one more instruction first.
+  if (!enable_after_instruction) {
+    const u32 interrupt_cycles = handle_interrupts();
+
+    if (interrupt_cycles > 0) {
+      return interrupt_cycles;
+    }
   }
 
-  if (m_halted)
-    return 4; // temp behaviour
+  if (m_halted) {
+    return 4;
+  }
 
   const u32 cycles = execute_instruction();
 
-  if (m_ime_pending) {
-    m_ime_pending = false;
+  if (enable_after_instruction) {
     m_ime = true;
   }
 

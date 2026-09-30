@@ -7,7 +7,18 @@
 
 class Bus {
 public:
-  explicit Bus(const std::vector<u8> &rom) : m_rom(rom) {}
+  explicit Bus(const std::vector<u8> &rom) : m_rom(rom) {
+    m_io[0x00] = 0xCF; // JOYP: no buttons pressed
+    m_io[0x40] = 0x91; // LCDC
+    m_io[0x42] = 0x00; // SCY
+    m_io[0x43] = 0x00; // SCX
+    m_io[0x45] = 0x00; // LYC
+    m_io[0x47] = 0xFC; // BGP
+    m_io[0x48] = 0xFF; // OBP0
+    m_io[0x49] = 0xFF; // OBP1
+    m_io[0x4A] = 0x00; // WY
+    m_io[0x4B] = 0x00; // WX
+  }
 
   [[nodiscard]] u8 read(u16 addr) const;
   void write(u16 addr, u8 value);
@@ -27,8 +38,11 @@ private:
   std::array<u8, 0x0080> m_io{};
   std::array<u8, 0x007F> m_hram{}; // high ram
 
+  u8 m_joypad_directions{0x0F};
+  u8 m_joypad_buttons{0x0F};
+
   u8 m_ie{};
-  u32 m_ppu_cycles{};
+  //   u32 m_ppu_cycles{};
   u32 m_div_cycles{};
   u32 m_timer_cycles{};
 };
