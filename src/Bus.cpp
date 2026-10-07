@@ -43,20 +43,6 @@ u8 Bus::read(u16 addr) const {
 
   // I/O registers
   if (addr <= 0xFF7F) {
-    // TODO: REMOVE THIS IF DEBUGGING WORKS
-
-    // fake LY - current scanlines
-    // if (addr == 0xFF44) {
-    //   return static_cast<u8>(m_ppu_cycles / 456 % 154);
-    // }
-
-    // fake STAT - PPU
-    // if (addr == 0xFF41) {
-    //   const u8 ly = static_cast<u8>((m_ppu_cycles / 456) % 154);
-    //   const u8 mode = ly >= 144 ? 1 : 3;
-    //   return (m_io.at(0x41) & 0xFC) | mode;
-    // }
-
     if (addr == 0xFF00) {
       const u8 select = m_io[0x00] & 0x30;
 
@@ -144,16 +130,6 @@ void Bus::write(u16 addr, u8 value) {
       return;
     }
 
-    if (addr == 0xFF07) {
-      std::cerr << "TAC write: 0x" << std::hex << (int)value
-                << " timer_enabled=" << ((value & 0x04) ? "yes" : "no") << '\n';
-    }
-
-    // temporary
-    if (addr == 0xFF40) {
-      std::cerr << "LCDC write: 0x" << std::hex << (int)value << '\n';
-    }
-
     m_io.at(addr - 0xFF00) = value;
 
     // serial transfer - SC write of 0x81 means "start transfer now"
@@ -179,15 +155,6 @@ void Bus::write(u16 addr, u8 value) {
 }
 
 void Bus::tick(u32 cycles) {
-  // TODO: REMVOE THIS TOO
-  // keep m_ppu_cycles for now, PPU handles VBlank interrupt itself
-  // Bus tick no longer fires VBlank, PPU does that
-  //   m_ppu_cycles += cycles;
-
-  //   if (m_ppu_cycles >= 70224) {
-  //     m_ppu_cycles -= 70224;
-  //     request_interrupt(0); // VBlank
-  //   }
 
   // DIV increments at 16384 Hz
   // CPU runs at 4194304 Hz
@@ -213,14 +180,9 @@ void Bus::tick(u32 cycles) {
 
       const u8 tima = m_io.at(0x05);
 
-      // temporary: log every TIMA increment
-      std::cerr << "TIMA: " << std::dec << (int)tima << " TAC: 0x" << std::hex
-                << (int)tac << '\n';
-
       if (tima == 0xFF) {
         m_io.at(0x05) = m_io.at(0x06);
         request_interrupt(2);
-        std::cerr << "TIMA overflow, interrupt requested\n";
       } else {
         m_io.at(0x05) = static_cast<u8>(tima + 1);
       }

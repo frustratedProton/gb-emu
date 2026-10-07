@@ -14,6 +14,47 @@
 
 static constexpr int SCALE = 3;
 
+static void update_joypad(Bus &bus) {
+  u8 directions = 0x0F;
+  u8 buttons = 0x0F;
+
+  // directional buttons
+  if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
+    directions &= static_cast<u8>(-0x01);
+  }
+
+  if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
+    directions &= static_cast<u8>(-0x01);
+  }
+
+  if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
+    directions &= static_cast<u8>(-0x01);
+  }
+
+  if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
+    directions &= static_cast<u8>(-0x01);
+  }
+
+  // Action buttons
+  if (IsKeyDown(KEY_Z)) {
+    buttons &= static_cast<u8>(~0x01); // A
+  }
+
+  if (IsKeyDown(KEY_X)) {
+    buttons &= static_cast<u8>(~0x02); // B
+  }
+
+  if (IsKeyDown(KEY_BACKSPACE) || IsKeyDown(KEY_SPACE)) {
+    buttons &= static_cast<u8>(~0x04); // Select
+  }
+
+  if (IsKeyDown(KEY_ENTER)) {
+    buttons &= static_cast<u8>(~0x08); // Start
+  }
+
+  bus.set_joypad_state(directions, buttons);
+}
+
 void run_emulator(const std::vector<u8> &rom) {
   Bus bus{rom};
   Cpu cpu{bus};
@@ -27,6 +68,8 @@ void run_emulator(const std::vector<u8> &rom) {
   UnloadImage(img);
 
   while (!WindowShouldClose()) {
+    update_joypad(bus);
+
     bool frame_ready = false;
 
     while (!frame_ready) {

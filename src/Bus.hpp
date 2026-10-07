@@ -30,6 +30,14 @@ public:
 
   void request_interrupt(u8 bit);
 
+  void set_joypad_state(u8 directions, u8 buttons) {
+    // Active-low
+    // 1 -> released
+    // 0 -> pressed
+    m_joypad_directions = directions & 0x0F;
+    m_joypad_buttons = buttons & 0x0F;
+  }
+
 private:
   const std::vector<u8> &m_rom;
   std::array<u8, 0x2000> m_vram{}; // video ram
