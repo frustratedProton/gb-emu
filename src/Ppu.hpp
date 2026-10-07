@@ -34,6 +34,8 @@ private:
   void render_scanline();
   void render_background_scanline(u8 ly);
 
+  void render_sprites_scanline(u8 ly);
+
   [[nodiscard]] u8 get_tile_pixel(u8 tile_id, u8 tile_x, u8 tile_y,
                                   bool use_signed_addressing) const;
   [[nodiscard]] Color get_color(u8 color_id, u8 palette) const;

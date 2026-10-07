@@ -18,38 +18,38 @@ static void update_joypad(Bus &bus) {
   u8 directions = 0x0F;
   u8 buttons = 0x0F;
 
-  // directional buttons
+  // Directional buttons
   if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
-    directions &= static_cast<u8>(-0x01);
+    directions &= static_cast<u8>(~0x01u); // Right, bit 0
   }
 
   if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
-    directions &= static_cast<u8>(-0x01);
+    directions &= static_cast<u8>(~0x02u); // Left, bit 1
   }
 
   if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
-    directions &= static_cast<u8>(-0x01);
+    directions &= static_cast<u8>(~0x04u); // Up, bit 2
   }
 
   if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
-    directions &= static_cast<u8>(-0x01);
+    directions &= static_cast<u8>(~0x08u); // Down, bit 3
   }
 
   // Action buttons
   if (IsKeyDown(KEY_Z)) {
-    buttons &= static_cast<u8>(~0x01); // A
+    buttons &= static_cast<u8>(~0x01u); // A
   }
 
   if (IsKeyDown(KEY_X)) {
-    buttons &= static_cast<u8>(~0x02); // B
+    buttons &= static_cast<u8>(~0x02u); // B
   }
 
   if (IsKeyDown(KEY_BACKSPACE) || IsKeyDown(KEY_SPACE)) {
-    buttons &= static_cast<u8>(~0x04); // Select
+    buttons &= static_cast<u8>(~0x04u); // Select
   }
 
   if (IsKeyDown(KEY_ENTER)) {
-    buttons &= static_cast<u8>(~0x08); // Start
+    buttons &= static_cast<u8>(~0x08u); // Start
   }
 
   bus.set_joypad_state(directions, buttons);

@@ -1,7 +1,6 @@
 #include "Ppu.hpp"
 #include "Bus.hpp"
 #include "types.hpp"
-#include <iostream>
 
 Ppu::Ppu(Bus &bus) : m_bus(bus) {
   m_bus.write(0xFF44, 0);
@@ -129,11 +128,14 @@ void Ppu::render_scanline() {
   if (lcdc & 0x01) {
     render_background_scanline(m_ly);
   }
+
+  if (lcdc & 0x02) {
+    render_sprites_scanline(m_ly);
+  }
 }
 
 void Ppu::render_background_scanline(u8 ly) {
 
-    
   const u8 lcdc = m_bus.read(0xFF40);
   const u8 scx = m_bus.read(0xFF43);
   const u8 scy = m_bus.read(0xFF42);
@@ -193,6 +195,89 @@ u8 Ppu::get_tile_pixel(u8 tile_id, u8 tile_x, u8 tile_y,
   const u8 hi_bit = (high >> bit) & 0x01;
 
   return static_cast<u8>((hi_bit << 1) | lo_bit);
+}
+
+void Ppu::render_sprites_scanline(u8 ly) {
+  const u8 lcdc = m_bus.read(0xFF40);
+  const int sprite_height = (lcdc & 0x04) ? 16 : 8;
+
+  // DMG allows at most 10 sprites on one scanline.
+  int sprites_on_line = 0;
+
+  // Lower OAM index has priority over higher OAM index.
+  std::array<bool, GB_WIDTH> pixel_used{};
+
+  for (int sprite_index = 0; sprite_index < 40 && sprites_on_line < 10;
+       ++sprite_index) {
+
+    const u16 oam_address = static_cast<u16>(0xFE00 + sprite_index * 4);
+
+    const int sprite_y = static_cast<int>(m_bus.read(oam_address)) - 16;
+
+    const int sprite_x = static_cast<int>(m_bus.read(oam_address + 1)) - 8;
+
+    u8 tile_id = m_bus.read(oam_address + 2);
+    const u8 attributes = m_bus.read(oam_address + 3);
+
+    const int row_in_sprite = static_cast<int>(ly) - sprite_y;
+
+    if (row_in_sprite < 0 || row_in_sprite >= sprite_height) {
+      continue;
+    }
+
+    ++sprites_on_line;
+
+    int row = row_in_sprite;
+
+    if (attributes & 0x40) {
+      row = sprite_height - 1 - row;
+    }
+
+    // Sprite tile data always uses unsigned 0x8000 addressing
+    if (sprite_height == 16) {
+      tile_id &= 0xFE;
+      tile_id = static_cast<u8>(tile_id + row / 8);
+      row %= 8;
+    }
+
+    const u16 tile_address = static_cast<u16>(0x8000 + tile_id * 16 + row * 2);
+
+    const u8 low = m_bus.read(tile_address);
+    const u8 high = m_bus.read(tile_address + 1);
+
+    const u8 palette = (attributes & 0x10) ? m_bus.read(0xFF49)  // OBP1
+                                           : m_bus.read(0xFF48); // OBP0
+
+    for (int pixel = 0; pixel < 8; ++pixel) {
+      const int screen_x = sprite_x + pixel;
+
+      if (screen_x < 0 || screen_x >= GB_WIDTH) {
+        continue;
+      }
+
+      if (pixel_used[screen_x]) {
+        continue;
+      }
+
+      const int tile_x = (attributes & 0x20) ? 7 - pixel : pixel;
+
+      const u8 bit = static_cast<u8>(7 - tile_x);
+
+      const u8 lo_bit = static_cast<u8>((low >> bit) & 1);
+      const u8 hi_bit = static_cast<u8>((high >> bit) & 1);
+
+      const u8 color_id = static_cast<u8>((hi_bit << 1) | lo_bit);
+
+      // Sprite color 0 is transparent.
+      if (color_id == 0) {
+        continue;
+      }
+
+      m_framebuffer[ly * GB_WIDTH + screen_x] = get_color(color_id, palette);
+
+      pixel_used[screen_x] = true;
+    }
+  }
 }
 
 Color Ppu::get_color(u8 color_id, u8 palette) const {
