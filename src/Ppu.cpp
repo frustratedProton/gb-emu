@@ -1,5 +1,8 @@
-#include "Ppu.hpp"
+#include <algorithm>
+#include <cstddef>
+
 #include "Bus.hpp"
+#include "Ppu.hpp"
 #include "types.hpp"
 
 Ppu::Ppu(Bus &bus) : m_bus(bus) {
@@ -28,6 +31,7 @@ bool Ppu::tick(u32 cycles) {
       m_lcd_enabled = false;
       m_cycles = 0;
       m_ly = 0;
+      m_window_line = 0;
 
       m_bus.write(0xFF44, 0);
       set_mode(Mode::HBlank);
@@ -41,14 +45,12 @@ bool Ppu::tick(u32 cycles) {
     m_lcd_enabled = true;
     m_cycles = 0;
     m_ly = 0;
+    m_window_line = 0;
 
     m_bus.write(0xFF44, 0);
     set_mode(Mode::OAMScan);
   }
 
-  //   if ((lcdc & 0x80) == 0) {
-  //     return false; // LCD false, return
-  //   }
 
   m_cycles += cycles;
   bool frame_ready = false;
@@ -103,6 +105,7 @@ bool Ppu::tick(u32 cycles) {
 
       if (m_ly == 154) {
         m_ly = 0;
+        m_window_line = 0;
         m_bus.write(0xFF44, 0);
         set_mode(Mode::OAMScan);
       }
@@ -120,13 +123,34 @@ void Ppu::render_scanline() {
 
   const Color background_color = get_color(0, palette);
 
-  const auto begin = m_framebuffer.begin() + m_ly * GB_WIDTH;
-  const auto end = begin + GB_WIDTH;
+  const auto framebuffer_begin = m_framebuffer.begin() + m_ly * GB_WIDTH;
 
-  std::fill(begin, end, background_color);
+  const auto framebuffer_end = framebuffer_begin + GB_WIDTH;
 
+  const auto bg_ids_begin = m_bg_color_ids.begin() + m_ly * GB_WIDTH;
+
+  const auto bg_ids_end = bg_ids_begin + GB_WIDTH;
+
+  std::fill(framebuffer_begin, framebuffer_end, background_color);
+  std::fill(bg_ids_begin, bg_ids_end, 0);
+
+  // background
   if (lcdc & 0x01) {
     render_background_scanline(m_ly);
+  }
+
+  bool window_visible = false;
+
+  const u8 wy = m_bus.read(0xFF4A);
+  const u8 wx = m_bus.read(0xFF4B);
+
+  if ((lcdc & 0x20) && m_ly >= wy && wx <= 166) {
+    render_window_scanline(m_ly);
+    window_visible = true;
+  }
+
+  if (window_visible) {
+    ++m_window_line;
   }
 
   if (lcdc & 0x02) {
@@ -165,7 +189,53 @@ void Ppu::render_background_scanline(u8 ly) {
 
     const u8 color_id =
         get_tile_pixel(tile_id, tile_pixel_x, tile_pixel_y, !use_unsigned);
-    m_framebuffer[ly * GB_WIDTH + x] = get_color(color_id, palette);
+
+    const std::size_t index = static_cast<std::size_t>(ly) * GB_WIDTH + x;
+
+    m_bg_color_ids[index] = color_id;
+    m_framebuffer[index] = get_color(color_id, palette);
+  }
+}
+
+void Ppu::render_window_scanline(u8 ly) {
+  const u8 lcdc = m_bus.read(0xFF40);
+  const u8 wx = m_bus.read(0xFF4B);
+
+  const u8 palette = m_bus.read(0xFF47);
+
+  const u16 map_base = (lcdc & 0x40) ? 0x9C00 : 0x9800;
+
+  const bool use_unsigned = (lcdc & 0x10) != 0;
+
+  const int window_left = static_cast<int>(wx) - 7;
+
+  const u8 tile_row = static_cast<u8>(m_window_line / 8);
+
+  const u8 tile_pixel_y = static_cast<u8>(m_window_line % 8);
+
+  const int first_screen_x = std::max(0, window_left);
+
+  for (int screen_x = first_screen_x; screen_x < GB_WIDTH; ++screen_x) {
+
+    const int window_x = screen_x - window_left;
+
+    const u8 tile_col = static_cast<u8>(window_x / 8);
+
+    const u8 tile_pixel_x = static_cast<u8>(window_x % 8);
+
+    const u16 map_address =
+        static_cast<u16>(map_base + tile_row * 32 + tile_col);
+
+    const u8 tile_id = m_bus.read(map_address);
+
+    const u8 color_id =
+        get_tile_pixel(tile_id, tile_pixel_x, tile_pixel_y, !use_unsigned);
+
+    const std::size_t index =
+        static_cast<std::size_t>(ly) * GB_WIDTH + screen_x;
+
+    m_bg_color_ids[index] = color_id;
+    m_framebuffer[index] = get_color(color_id, palette);
   }
 }
 
@@ -273,9 +343,17 @@ void Ppu::render_sprites_scanline(u8 ly) {
         continue;
       }
 
-      m_framebuffer[ly * GB_WIDTH + screen_x] = get_color(color_id, palette);
-
       pixel_used[screen_x] = true;
+
+      const std::size_t index =
+          static_cast<std::size_t>(ly) * GB_WIDTH + screen_x;
+
+      // Sprite attribute bit 7 means "behind background".
+      if ((attributes & 0x80) != 0 && m_bg_color_ids[index] != 0) {
+        continue;
+      }
+
+      m_framebuffer[ly * GB_WIDTH + screen_x] = get_color(color_id, palette);
     }
   }
 }

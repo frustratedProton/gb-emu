@@ -35,6 +35,7 @@ private:
   void render_background_scanline(u8 ly);
 
   void render_sprites_scanline(u8 ly);
+  void render_window_scanline(u8 ly);
 
   [[nodiscard]] u8 get_tile_pixel(u8 tile_id, u8 tile_x, u8 tile_y,
                                   bool use_signed_addressing) const;
@@ -43,6 +44,8 @@ private:
   Bus &m_bus;
 
   std::array<Color, GB_WIDTH * GB_HEIGHT> m_framebuffer{};
+
+  std::array<u8, GB_WIDTH * GB_HEIGHT> m_bg_color_ids{};
 
   u32 m_cycles{}; // cycles within current scanline
   u8 m_ly{};      // current scanline (0-153)
@@ -55,8 +58,9 @@ private:
   };
 
   Mode m_mode{Mode::OAMScan};
-
   void set_mode(Mode mode);
 
   bool m_lcd_enabled{};
+  
+  u8 m_window_line{};
 };
