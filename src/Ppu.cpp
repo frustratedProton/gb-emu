@@ -10,13 +10,48 @@ Ppu::Ppu(Bus &bus) : m_bus(bus) {
   set_mode(Mode::HBlank);
 }
 
+void Ppu::update_stat() {
+  u8 stat = m_bus.read(0xFF41);
+
+  const u8 lyc = m_bus.read(0xFF45);
+  const bool coincidence = m_ly == lyc;
+
+  // STAT bit 2: LYC == LY
+  if (coincidence) {
+    stat |= 0x04;
+  } else {
+    stat &= static_cast<u8>(~0x04);
+  }
+
+  // STAT bits 0-1: current PPU mode
+  stat = static_cast<u8>((stat & 0xFC) | static_cast<u8>(m_mode));
+
+  // Let the PPU update the read-only STAT bits.
+  m_bus.ppu_set_stat(stat);
+
+  // Determine whether the STAT interrupt line is active.
+  const bool lyc_interrupt = (stat & 0x40) != 0 && coincidence;
+
+  const bool mode2_interrupt = (stat & 0x20) != 0 && m_mode == Mode::OAMScan;
+
+  const bool mode1_interrupt = (stat & 0x10) != 0 && m_mode == Mode::VBlank;
+
+  const bool mode0_interrupt = (stat & 0x08) != 0 && m_mode == Mode::HBlank;
+
+  const bool stat_line =
+      lyc_interrupt || mode2_interrupt || mode1_interrupt || mode0_interrupt;
+
+  // STAT interrupts happen on a rising edge, not every tick.
+  if (stat_line && !m_stat_irq_line) {
+    m_bus.request_interrupt(1);
+  }
+
+  m_stat_irq_line = stat_line;
+}
+
 void Ppu::set_mode(Mode mode) {
   m_mode = mode;
-
-  u8 stat = m_bus.read(0xFF41);
-  stat = static_cast<u8>((stat & 0xFC) | static_cast<u8>(mode));
-
-  m_bus.write(0xFF41, stat);
+  update_stat();
 }
 
 bool Ppu::tick(u32 cycles) {
@@ -32,11 +67,13 @@ bool Ppu::tick(u32 cycles) {
       m_cycles = 0;
       m_ly = 0;
       m_window_line = 0;
+      m_stat_irq_line = false;
 
       m_bus.write(0xFF44, 0);
       set_mode(Mode::HBlank);
     }
 
+    update_stat();
     return false;
   }
 
@@ -46,11 +83,11 @@ bool Ppu::tick(u32 cycles) {
     m_cycles = 0;
     m_ly = 0;
     m_window_line = 0;
+    m_stat_irq_line = false;
 
     m_bus.write(0xFF44, 0);
     set_mode(Mode::OAMScan);
   }
-
 
   m_cycles += cycles;
   bool frame_ready = false;
@@ -82,16 +119,19 @@ bool Ppu::tick(u32 cycles) {
       m_cycles -= 204;
       ++m_ly;
 
-      m_bus.write(0xFF44, m_ly);
-
       if (m_ly == 144) {
+        m_bus.write(0xFF44, m_ly);
+
         set_mode(Mode::VBlank);
         m_bus.request_interrupt(0);
+
         frame_ready = true;
       } else {
+        m_bus.write(0xFF44, m_ly);
         set_mode(Mode::OAMScan);
       }
     }
+
     break;
   }
 
@@ -101,18 +141,24 @@ bool Ppu::tick(u32 cycles) {
       m_cycles -= 456;
       ++m_ly;
 
-      m_bus.write(0xFF44, m_ly);
-
       if (m_ly == 154) {
+        // Start a new frame.
         m_ly = 0;
         m_window_line = 0;
+
         m_bus.write(0xFF44, 0);
         set_mode(Mode::OAMScan);
+      } else {
+        m_bus.write(0xFF44, m_ly);
+        update_stat();
       }
     }
+
     break;
   }
   }
+
+  update_stat();
 
   return frame_ready;
 }

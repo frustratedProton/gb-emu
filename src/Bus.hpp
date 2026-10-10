@@ -38,6 +38,8 @@ public:
     m_joypad_buttons = buttons & 0x0F;
   }
 
+  void ppu_set_stat(u8 value) { m_io[0x41] = value; }
+
 private:
   const std::vector<u8> &m_rom;
   std::array<u8, 0x2000> m_vram{}; // video ram

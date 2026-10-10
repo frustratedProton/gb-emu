@@ -41,6 +41,8 @@ private:
                                   bool use_signed_addressing) const;
   [[nodiscard]] Color get_color(u8 color_id, u8 palette) const;
 
+  void update_stat();
+
   Bus &m_bus;
 
   std::array<Color, GB_WIDTH * GB_HEIGHT> m_framebuffer{};
@@ -59,8 +61,7 @@ private:
 
   Mode m_mode{Mode::OAMScan};
   void set_mode(Mode mode);
-
   bool m_lcd_enabled{};
-  
   u8 m_window_line{};
+  bool m_stat_irq_line{};
 };

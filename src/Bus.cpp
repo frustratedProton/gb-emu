@@ -115,6 +115,7 @@ void Bus::write(u16 addr, u8 value) {
     return;
   }
 
+  // IO
   if (addr <= 0xFF7F) {
     if (addr == 0xFF00) {
       // Only bits 4 and 5 are writable.
@@ -141,6 +142,13 @@ void Bus::write(u16 addr, u8 value) {
     if (addr == 0xFF02 && value == 0x81) {
       std::cout << static_cast<char>(m_io.at(0x01)) << std::flush;
       m_io.at(0x02) = static_cast<u8>(value & 0x7F);
+    }
+
+    if (addr == 0xFF41) {
+      // cpu can write bits 3-6 only
+      // bit 0-2 are controlled by ppu
+      m_io[0x41] = static_cast<u8>((m_io[0x41] & 0x87) | (value & 0x78));
+      return;
     }
 
     return;
