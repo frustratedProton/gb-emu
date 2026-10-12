@@ -43,6 +43,10 @@ u8 Bus::read(u16 addr) const {
 
   // I/O registers
   if (addr <= 0xFF7F) {
+    if (addr == 0xFF41) {
+      return static_cast<u8>(m_io[0x41] | 0x80);
+    }
+
     if (addr == 0xFF00) {
       const u8 select = m_io[0x00] & 0x30;
 
@@ -127,7 +131,7 @@ void Bus::write(u16 addr, u8 value) {
     // writing any value to DIV resets it to 0
     if (addr == 0xFF04) {
       m_io.at(0x04) = 0;
-      m_timer_cycles = 0;
+      m_div_cycles = 0;
       return;
     }
 

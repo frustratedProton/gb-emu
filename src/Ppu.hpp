@@ -31,27 +31,6 @@ public:
   }
 
 private:
-  void render_scanline();
-  void render_background_scanline(u8 ly);
-
-  void render_sprites_scanline(u8 ly);
-  void render_window_scanline(u8 ly);
-
-  [[nodiscard]] u8 get_tile_pixel(u8 tile_id, u8 tile_x, u8 tile_y,
-                                  bool use_signed_addressing) const;
-  [[nodiscard]] Color get_color(u8 color_id, u8 palette) const;
-
-  void update_stat();
-
-  Bus &m_bus;
-
-  std::array<Color, GB_WIDTH * GB_HEIGHT> m_framebuffer{};
-
-  std::array<u8, GB_WIDTH * GB_HEIGHT> m_bg_color_ids{};
-
-  u32 m_cycles{}; // cycles within current scanline
-  u8 m_ly{};      // current scanline (0-153)
-
   enum class Mode : u8 {
     HBlank = 0,
     VBlank = 1,
@@ -59,9 +38,31 @@ private:
     Drawing = 3,
   };
 
-  Mode m_mode{Mode::OAMScan};
   void set_mode(Mode mode);
+  void update_stat();
+
+  void render_scanline();
+  void render_background_scanline(u8 ly);
+  void render_window_scanline(u8 ly);
+  void render_sprites_scanline(u8 ly);
+
+  [[nodiscard]] u8 get_tile_pixel(u8 tile_id, u8 tile_x, u8 tile_y,
+                                  bool use_signed_addressing) const;
+
+  [[nodiscard]] Color get_color(u8 color_id, u8 palette) const;
+
+  Bus &m_bus;
+
+  std::array<Color, GB_WIDTH * GB_HEIGHT> m_framebuffer{};
+  std::array<u8, GB_WIDTH * GB_HEIGHT> m_bg_color_ids{};
+
+  u32 m_cycles{}; // cycles within current scanline
+  u8 m_ly{};      // current scanline (0-153)
+
+  Mode m_mode{Mode::HBlank};
+
   bool m_lcd_enabled{};
-  u8 m_window_line{};
   bool m_stat_irq_line{};
+
+  u8 m_window_line{};
 };
