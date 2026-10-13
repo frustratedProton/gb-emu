@@ -121,6 +121,17 @@ void Bus::write(u16 addr, u8 value) {
 
   // IO
   if (addr <= 0xFF7F) {
+    if (addr == 0xFF05) {
+      // A TIMA write during the reload window cancels the reload.
+      if (m_tima_reload_pending) {
+        m_tima_reload_pending = false;
+        m_tima_reload_delay = 0;
+      }
+
+      m_io[0x05] = value;
+      return;
+    }
+
     if (addr == 0xFF00) {
       // Only bits 4 and 5 are writable.
       m_io[0x00] = static_cast<u8>((m_io[0x00] & 0xCF) | (value & 0x30));
@@ -130,12 +141,23 @@ void Bus::write(u16 addr, u8 value) {
 
     // writing any value to DIV resets it to 0
     if (addr == 0xFF04) {
-      m_io.at(0x04) = 0;
-      m_div_cycles = 0;
+      //   m_io.at(0x04) = 0;
+      //   m_div_cycles = 0;
+      //   return;
+
+      const bool old_timer_signal = timer_input();
+
+      m_div_counter = 0;
+      m_io[0x04] = 0;
+
+      const bool new_timer_signal = timer_input();
+
+      if (old_timer_signal && !new_timer_signal) {
+        increment_tima();
+      }
+
       return;
     }
-
-    m_io.at(addr - 0xFF00) = value;
 
     // serial transfer - SC write of 0x81 means "start transfer now"
     // SB (0xFF01) holds the byte to send
@@ -148,6 +170,20 @@ void Bus::write(u16 addr, u8 value) {
       m_io.at(0x02) = static_cast<u8>(value & 0x7F);
     }
 
+    if (addr == 0xFF07) {
+      const bool old_timer_signal = timer_input();
+
+      m_io[0x07] = value;
+
+      const bool new_timer_signal = timer_input();
+
+      if (old_timer_signal && !new_timer_signal) {
+        increment_tima();
+      }
+
+      return;
+    }
+
     if (addr == 0xFF41) {
       // cpu can write bits 3-6 only
       // bit 0-2 are controlled by ppu
@@ -155,6 +191,12 @@ void Bus::write(u16 addr, u8 value) {
       return;
     }
 
+    if (addr == 0xFF06) {
+      m_io[0x06] = value;
+      return;
+    }
+
+    m_io.at(addr - 0xFF00) = value;
     return;
   }
 
@@ -167,38 +209,44 @@ void Bus::write(u16 addr, u8 value) {
 }
 
 void Bus::tick(u32 cycles) {
+  for (u32 i = 0; i < cycles; ++i) {
+    // Handle delayed TIMA reloadi
+    if (m_tima_reload_pending) {
+      if (m_tima_reload_delay > 0) {
+        --m_tima_reload_delay;
+      }
 
-  // DIV increments at 16384 Hz
-  // CPU runs at 4194304 Hz
-  // 4194304 / 16384 = 256 cycles per DIV increment
-  m_div_cycles += cycles;
-  while (m_div_cycles >= 256) {
-    m_div_cycles -= 256;
-    m_io.at(0x04) = static_cast<u8>(m_io.at(0x04) + 1); // 0xFF04 = DIV
-  }
-
-  // TIMER
-  const u8 tac = m_io.at(0x07);
-  const bool timer_enabled = (tac & 0x04) != 0;
-
-  if (timer_enabled) {
-    m_timer_cycles += cycles;
-
-    static constexpr u32 thresholds[4] = {1024, 16, 64, 256};
-    const u32 threshold = thresholds[tac & 0x03];
-
-    while (m_timer_cycles >= threshold) {
-      m_timer_cycles -= threshold;
-
-      const u8 tima = m_io.at(0x05);
-
-      if (tima == 0xFF) {
-        m_io.at(0x05) = m_io.at(0x06);
+      if (m_tima_reload_delay == 0) {
+        m_io[0x05] = m_io[0x06];
         request_interrupt(2);
-      } else {
-        m_io.at(0x05) = static_cast<u8>(tima + 1);
+        m_tima_reload_pending = false;
       }
     }
+
+    const bool old_timer_signal = timer_input();
+
+    ++m_div_counter;
+    m_io[0x04] = static_cast<u8>(m_div_counter >> 8);
+
+    const bool new_timer_signal = timer_input();
+
+    if (old_timer_signal && !new_timer_signal) {
+      increment_tima();
+    }
+  }
+}
+
+void Bus::increment_tima() {
+  if (m_tima_reload_pending) {
+    return;
+  }
+
+  if (m_io[0x05] == 0xFF) {
+    m_io[0x05] = 0x00;
+    m_tima_reload_pending = true;
+    m_tima_reload_delay = 4;
+  } else {
+    ++m_io[0x05];
   }
 }
 

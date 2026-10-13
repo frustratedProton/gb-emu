@@ -40,6 +40,32 @@ public:
 
   void ppu_set_stat(u8 value) { m_io[0x41] = value; }
 
+  u8 timer_bit() const {
+    switch (m_io[0x07] & 0x03) {
+    case 0:
+      return 9;
+    case 1:
+      return 3;
+    case 2:
+      return 5;
+
+    default:
+      return 7;
+    }
+  }
+
+  bool timer_input() const {
+    const bool enabled = (m_io[0x07] & 0x04) != 0;
+
+    if (!enabled) {
+      return false;
+    }
+
+    return ((m_div_counter >> timer_bit()) & 1) != 0;
+  }
+
+  void increment_tima();
+
 private:
   const std::vector<u8> &m_rom;
   std::array<u8, 0x2000> m_vram{}; // video ram
@@ -53,6 +79,8 @@ private:
 
   u8 m_ie{};
   //   u32 m_ppu_cycles{};
-  u32 m_div_cycles{};
-  u32 m_timer_cycles{};
+
+  u16 m_div_counter{};
+  bool m_tima_reload_pending{};
+  u8 m_tima_reload_delay{};
 };
