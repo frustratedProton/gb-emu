@@ -20,6 +20,29 @@ void Cpu::reset_post_boot_dmg() {
   m_ime_pending = false;
 }
 
+void Cpu::advance_cycles(u32 cycles) {
+  m_bus.tick(cycles);
+  m_step_cycles += cycles;
+}
+
+u8 Cpu::timed_read(u16 addr) {
+  m_bus.complete_tima_reload();
+  const u8 value = m_bus.read(addr);
+  advance_cycles(4);
+  return value;
+}
+
+void Cpu::timed_write(u16 addr, u8 value) {
+  m_bus.write(addr, value);
+  advance_cycles(4);
+}
+
+u8 Cpu::timed_fetch(u16 addr) {
+  const u8 value = m_bus.read(addr);
+  advance_cycles(4);
+  return value;
+}
+
 u16 Cpu::af() const {
   return static_cast<u16>((static_cast<u16>(m_registers.a) << 8) |
                           m_registers.f);
@@ -222,7 +245,7 @@ void Cpu::sbc_a(u8 value) {
 }
 
 u8 Cpu::fetch8() {
-  const u8 value = m_bus.read(m_registers.pc);
+  const u8 value = timed_fetch(m_registers.pc);
   m_registers.pc = static_cast<u16>(m_registers.pc + 1);
   return value;
 }
@@ -242,7 +265,7 @@ u16 Cpu::fetch16() {
 // 5 → L
 // 6 → memory at HL
 // 7 → A
-u8 Cpu::read_r8(u8 code) const {
+u8 Cpu::read_r8(u8 code) {
   switch (code) {
   case 0:
     return m_registers.b;
@@ -263,7 +286,7 @@ u8 Cpu::read_r8(u8 code) const {
     return m_registers.l;
 
   case 6:
-    return m_bus.read(hl());
+    return timed_read(hl());
 
   case 7:
     return m_registers.a;
@@ -319,7 +342,7 @@ void Cpu::write_r8(u8 code, u8 value) {
     return;
 
   case 6:
-    m_bus.write(hl(), value);
+    timed_write(hl(), value);
     return;
 
   case 7:
@@ -425,15 +448,15 @@ void Cpu::execute_alu(u8 operation, u8 value) {
 
 void Cpu::push16(u16 value) {
   m_registers.sp -= 1;
-  m_bus.write(m_registers.sp, static_cast<u8>(value >> 8));
+  timed_write(m_registers.sp, static_cast<u8>(value >> 8));
   m_registers.sp -= 1;
-  m_bus.write(m_registers.sp, static_cast<u8>(value & 0xFF));
+  timed_write(m_registers.sp, static_cast<u8>(value & 0xFF));
 }
 
 u16 Cpu::pop16() {
-  const u8 lo = m_bus.read(m_registers.sp);
+  const u8 lo = timed_read(m_registers.sp);
   m_registers.sp += 1;
-  const u8 hi = m_bus.read(m_registers.sp);
+  const u8 hi = timed_read(m_registers.sp);
   m_registers.sp += 1;
   return static_cast<u16>((hi << 8) | lo);
 }
@@ -640,7 +663,7 @@ u32 Cpu::handle_interrupts() {
     if ((pending & (1 << bit)) == 0)
       continue;
 
-    m_bus.write(0xFF0F, static_cast<u8>(if_ & ~(1 << bit)));
+    timed_write(0xFF0F, static_cast<u8>(if_ & ~(1 << bit)));
 
     m_ime = false;
 
@@ -779,9 +802,9 @@ u32 Cpu::execute_instruction() {
     const u16 addr = hl_pair ? hl() : read_r16(pair);
 
     if (to_a) {
-      m_registers.a = m_bus.read(addr);
+      m_registers.a = timed_read(addr);
     } else {
-      m_bus.write(addr, m_registers.a);
+      timed_write(addr, m_registers.a);
     }
 
     if (hl_pair) {
@@ -972,14 +995,17 @@ u32 Cpu::execute_instruction() {
     // STOP
   case 0x10: {
     static_cast<void>(fetch8()); // consume the second byte (always 0x00)
-    return 4;
+    // return 4;
+
+    // TODO : TEMP CHANGE TO 8 cycle return
+    return 8;
   }
 
   // LD (u16), SP
   case 0x08: {
     const u16 addr = fetch16();
-    m_bus.write(addr, static_cast<u8>(m_registers.sp & 0xFF));
-    m_bus.write(addr + 1, static_cast<u8>(m_registers.sp >> 8));
+    timed_write(addr, static_cast<u8>(m_registers.sp & 0xFF));
+    timed_write(addr + 1, static_cast<u8>(m_registers.sp >> 8));
     return 20;
   }
 
@@ -1094,7 +1120,7 @@ u32 Cpu::execute_instruction() {
     const u8 offset = fetch8();
     const u16 addr = 0xFF00 + offset;
 
-    m_bus.write(addr, m_registers.a);
+    timed_write(addr, m_registers.a);
 
     return 12;
   }
@@ -1103,7 +1129,7 @@ u32 Cpu::execute_instruction() {
   case 0xEA: {
     const u16 addr = fetch16();
 
-    m_bus.write(addr, m_registers.a);
+    timed_write(addr, m_registers.a);
     return 16;
   }
 
@@ -1116,7 +1142,7 @@ u32 Cpu::execute_instruction() {
   // LD A,(FF00+u8)
   case 0xF0: {
     const u8 offset = fetch8();
-    m_registers.a = m_bus.read(0xFF00 + offset);
+    m_registers.a = timed_read(0xFF00 + offset);
 
     return 12;
   }
@@ -1124,7 +1150,7 @@ u32 Cpu::execute_instruction() {
   // LD A,(a16)
   case 0xFA: {
     const u16 addr = fetch16();
-    m_registers.a = m_bus.read(addr);
+    m_registers.a = timed_read(addr);
     return 16;
   }
 
@@ -1215,7 +1241,7 @@ u32 Cpu::execute_instruction() {
   case 0xE2: {
     const u16 addr = static_cast<u16>(0xFF00 + m_registers.c);
 
-    m_bus.write(addr, m_registers.a);
+    timed_write(addr, m_registers.a);
     return 8;
   }
 
@@ -1227,7 +1253,8 @@ u32 Cpu::execute_instruction() {
 
   // LD A, (FF00+C)
   case 0xF2: {
-    m_registers.a = m_bus.read(0xFF00 + m_registers.c);
+    // m_registers.a = m_bus.read(0xFF00 + m_registers.c);
+    m_registers.a = timed_read(0xFF00 + m_registers.c);
     return 8;
   }
 
@@ -1249,42 +1276,23 @@ u32 Cpu::execute_instruction() {
   }
 }
 
-// u32 Cpu::step() {
-//   const u32 interrupt_cycles = handle_interrupts();
-//   if (interrupt_cycles > 0) {
-//     return interrupt_cycles;
-//   }
-
-//   if (m_halted)
-//     return 4; // temp behaviour
-
-//   const u32 cycles = execute_instruction();
-
-//   if (m_ime_pending) {
-//     m_ime_pending = false;
-//     m_ime = true;
-//   }
-
-//   return cycles;
-// }
-
 u32 Cpu::step() {
+  m_step_cycles = 0;
   const bool enable_after_instruction = m_ime_pending;
 
-  // Consume the pending EI state.
+  // Consume the pending EI state
   m_ime_pending = false;
-
-  // If EI was executed on the previous instruction, do not service
-  // an interrupt yet. Execute one more instruction first.
   if (!enable_after_instruction) {
     const u32 interrupt_cycles = handle_interrupts();
 
     if (interrupt_cycles > 0) {
+      finish_cycles(interrupt_cycles);
       return interrupt_cycles;
     }
   }
 
   if (m_halted) {
+    advance_cycles(4);
     return 4;
   }
 
@@ -1294,5 +1302,23 @@ u32 Cpu::step() {
     m_ime = true;
   }
 
+  if (m_step_cycles > cycles) {
+    throw std::logic_error{"CPU consumed too many cycles"};
+  }
+
+  if (m_step_cycles < cycles) {
+    advance_cycles(cycles - m_step_cycles);
+  }
+
   return cycles;
+}
+
+void Cpu::finish_cycles(u32 total_cycles) {
+  if (m_step_cycles > total_cycles) {
+    throw std::logic_error{"CPU consumed too many cycles"};
+  }
+
+  if (m_step_cycles < total_cycles) {
+    advance_cycles(total_cycles - m_step_cycles);
+  }
 }

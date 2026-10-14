@@ -122,9 +122,14 @@ void Bus::write(u16 addr, u8 value) {
   // IO
   if (addr <= 0xFF7F) {
     if (addr == 0xFF05) {
+      if (m_tima_reload_phase == TimaReloadPhase::Reload) {
+        // TIMA writes are ignored during the reload M-cycle.
+        return;
+      }
+
       // A TIMA write during the reload window cancels the reload.
-      if (m_tima_reload_pending) {
-        m_tima_reload_pending = false;
+      if (m_tima_reload_phase == TimaReloadPhase::Overflow) {
+        m_tima_reload_phase = TimaReloadPhase::None;
         m_tima_reload_delay = 0;
       }
 
@@ -208,18 +213,36 @@ void Bus::write(u16 addr, u8 value) {
   m_ie = value;
 }
 
+void Bus::complete_tima_reload() {
+  if (m_tima_reload_phase != TimaReloadPhase::Reload) {
+    return;
+  }
+
+  m_io[0x05] = m_io[0x06];
+  request_interrupt(2);
+
+  m_tima_reload_phase = TimaReloadPhase::None;
+  m_tima_reload_delay = 0;
+}
+
 void Bus::tick(u32 cycles) {
+  complete_tima_reload();
+  if (m_tima_reload_phase == TimaReloadPhase::Reload) {
+    m_io[0x05] = m_io[0x06];
+    request_interrupt(2);
+
+    m_tima_reload_phase = TimaReloadPhase::None;
+    m_tima_reload_delay = 0;
+  }
+
   for (u32 i = 0; i < cycles; ++i) {
-    // Handle delayed TIMA reloadi
-    if (m_tima_reload_pending) {
+    if (m_tima_reload_phase == TimaReloadPhase::Overflow) {
       if (m_tima_reload_delay > 0) {
         --m_tima_reload_delay;
       }
 
       if (m_tima_reload_delay == 0) {
-        m_io[0x05] = m_io[0x06];
-        request_interrupt(2);
-        m_tima_reload_pending = false;
+        m_tima_reload_phase = TimaReloadPhase::Reload;
       }
     }
 
@@ -230,6 +253,7 @@ void Bus::tick(u32 cycles) {
 
     const bool new_timer_signal = timer_input();
 
+    // TIMA increments on a falling edge
     if (old_timer_signal && !new_timer_signal) {
       increment_tima();
     }
@@ -237,13 +261,15 @@ void Bus::tick(u32 cycles) {
 }
 
 void Bus::increment_tima() {
-  if (m_tima_reload_pending) {
+  if (m_tima_reload_phase != TimaReloadPhase::None) {
     return;
   }
 
   if (m_io[0x05] == 0xFF) {
     m_io[0x05] = 0x00;
-    m_tima_reload_pending = true;
+
+    // TIMA remains 00 during the overflow phase
+    m_tima_reload_phase = TimaReloadPhase::Overflow;
     m_tima_reload_delay = 4;
   } else {
     ++m_io[0x05];

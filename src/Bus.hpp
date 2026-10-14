@@ -5,6 +5,8 @@
 #include <array>
 #include <vector>
 
+enum class TimaReloadPhase : u8 { None, Overflow, Reload };
+
 class Bus {
 public:
   explicit Bus(const std::vector<u8> &rom) : m_rom(rom) {
@@ -65,6 +67,7 @@ public:
   }
 
   void increment_tima();
+  void complete_tima_reload();
 
 private:
   const std::vector<u8> &m_rom;
@@ -81,6 +84,6 @@ private:
   //   u32 m_ppu_cycles{};
 
   u16 m_div_counter{};
-  bool m_tima_reload_pending{};
   u8 m_tima_reload_delay{};
+  TimaReloadPhase m_tima_reload_phase{TimaReloadPhase::None};
 };

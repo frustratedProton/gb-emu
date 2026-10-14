@@ -52,6 +52,8 @@ public:
   void set_pc(u16 value) { m_registers.pc = value; }
   void set_sp(u16 value) { m_registers.sp = value; }
 
+  void finish_cycles(u32 total_cycles);
+
 private:
   [[nodiscard]] u32 execute_cb();
 
@@ -81,7 +83,7 @@ private:
   u16 read_r16_push(u8 reg) const;
   void write_r16_push(u8 reg, u16 value);
 
-  [[nodiscard]] u8 read_r8(u8 code) const;
+  [[nodiscard]] u8 read_r8(u8 code);
   [[nodiscard]] u16 read_r16(u16 code) const;
   void write_r8(u8 code, u8 value);
   void write_r16(u8 code, u16 value);
@@ -93,10 +95,16 @@ private:
   u8 inc8(u8 value);
   [[nodiscard]] u8 dec8(u8 value);
 
+  void advance_cycles(u32 cycles);
+  u8 timed_fetch(u16 addr);
+  u8 timed_read(u16 addr);
+  void timed_write(u16 addr, u8 value);
+
   Bus &m_bus;
   Registers m_registers{};
 
   bool m_ime{};
   bool m_ime_pending{};
   bool m_halted{};
+  u32 m_step_cycles{};
 };
