@@ -26,7 +26,6 @@ void Cpu::advance_cycles(u32 cycles) {
 }
 
 u8 Cpu::timed_read(u16 addr) {
-  m_bus.complete_tima_reload();
   const u8 value = m_bus.read(addr);
   advance_cycles(4);
   return value;

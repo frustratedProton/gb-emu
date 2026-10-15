@@ -75,7 +75,6 @@ void run_emulator(const std::vector<u8> &rom) {
     while (!frame_ready) {
       const u32 cycles = cpu.step();
 
-    //   bus.tick(cycles);
       frame_ready = ppu.tick(cycles);
     }
 

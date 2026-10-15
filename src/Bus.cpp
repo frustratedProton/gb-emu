@@ -176,13 +176,24 @@ void Bus::write(u16 addr, u8 value) {
     }
 
     if (addr == 0xFF07) {
+      const u8 old_tac = m_io[0x07];
       const bool old_timer_signal = timer_input();
 
       m_io[0x07] = value;
 
       const bool new_timer_signal = timer_input();
+      const bool falling_edge = old_timer_signal && !new_timer_signal;
 
-      if (old_timer_signal && !new_timer_signal) {
+      std::cerr << "TAC write: old=" << std::hex
+                << static_cast<unsigned>(old_tac)
+                << " new=" << static_cast<unsigned>(value)
+                << " DIV=" << static_cast<unsigned>(m_div_counter)
+                << " TIMA=" << static_cast<unsigned>(m_io[0x05])
+                << " old_signal=" << old_timer_signal
+                << " new_signal=" << new_timer_signal
+                << " falling_edge=" << falling_edge << '\n';
+
+      if (falling_edge) {
         increment_tima();
       }
 
@@ -198,6 +209,10 @@ void Bus::write(u16 addr, u8 value) {
 
     if (addr == 0xFF06) {
       m_io[0x06] = value;
+      if (m_tima_reload_phase == TimaReloadPhase::Reload) {
+        m_io[0x05] = value;
+      }
+
       return;
     }
 
@@ -226,11 +241,9 @@ void Bus::complete_tima_reload() {
 }
 
 void Bus::tick(u32 cycles) {
-  complete_tima_reload();
+  // The CPU access for the previous Reload phase happened immediately
+  // before this call. Close that phase now.
   if (m_tima_reload_phase == TimaReloadPhase::Reload) {
-    m_io[0x05] = m_io[0x06];
-    request_interrupt(2);
-
     m_tima_reload_phase = TimaReloadPhase::None;
     m_tima_reload_delay = 0;
   }
@@ -243,6 +256,9 @@ void Bus::tick(u32 cycles) {
 
       if (m_tima_reload_delay == 0) {
         m_tima_reload_phase = TimaReloadPhase::Reload;
+
+        m_io[0x05] = m_io[0x06];
+        request_interrupt(2);
       }
     }
 
@@ -253,7 +269,6 @@ void Bus::tick(u32 cycles) {
 
     const bool new_timer_signal = timer_input();
 
-    // TIMA increments on a falling edge
     if (old_timer_signal && !new_timer_signal) {
       increment_tima();
     }
