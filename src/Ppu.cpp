@@ -14,6 +14,7 @@ Ppu::Ppu(Bus &bus) : m_bus(bus) {
 void Ppu::set_mode(Mode mode) {
   m_mode = mode;
   update_stat();
+  update_cpu_access();
 }
 
 void Ppu::update_stat() {
@@ -69,6 +70,9 @@ bool Ppu::tick(u32 cycles) {
       m_ly = 0;
       m_window_line = 0;
 
+      m_lcd_on_line0 = false;
+      m_line0_mode0_phase = false;
+
       // STAT/LYC state remains latched while LCD is off
       m_mode = Mode::HBlank;
 
@@ -89,6 +93,9 @@ bool Ppu::tick(u32 cycles) {
     m_ly = 0;
     m_window_line = 0;
 
+    m_lcd_on_line0 = true;
+    m_line0_mode0_phase = true;
+
     m_bus.write(0xFF44, 0);
 
     set_mode(Mode::HBlank);
@@ -98,33 +105,66 @@ bool Ppu::tick(u32 cycles) {
 
   bool frame_ready = false;
 
-  switch (m_mode) {
-  case Mode::OAMScan: {
-    if (m_cycles >= 80) {
+  for (;;) {
+    switch (m_mode) {
+    case Mode::OAMScan:
+      if (m_cycles < 80) {
+        update_stat();
+        update_cpu_access();
+        return frame_ready;
+      }
+
       m_cycles -= 80;
       set_mode(Mode::Drawing);
-    }
+      break;
 
-    break;
-  }
+    case Mode::Drawing: {
+      const u32 drawing_cycles = m_lcd_on_line0 ? 174 : 172;
 
-  case Mode::Drawing: {
-    if (m_cycles >= 172) {
-      m_cycles -= 172;
+      if (m_cycles < drawing_cycles) {
+        update_stat();
+        update_cpu_access();
+        return frame_ready;
+      }
+
+      m_cycles -= drawing_cycles;
 
       render_scanline();
       set_mode(Mode::HBlank);
+      break;
     }
 
-    break;
-  }
+    case Mode::HBlank: {
+      u32 hblank_cycles = 204;
 
-  case Mode::HBlank: {
-    if (m_cycles >= 204) {
-      m_cycles -= 204;
+      if (m_line0_mode0_phase) {
+        // The initial LCD-on Mode 0 occupies the normal OAM-scan
+        // duration, but no OAM scan occurs.
+        hblank_cycles = 80;
+      } else if (m_lcd_on_line0) {
+        // Line 0 has a 2-cycle longer Mode 3 and a 2-cycle shorter
+        // HBlank, keeping the line at 456 cycles.
+        hblank_cycles = 202;
+      }
+
+      if (m_cycles < hblank_cycles) {
+        update_stat();
+        update_cpu_access();
+        return frame_ready;
+      }
+
+      m_cycles -= hblank_cycles;
+
+      if (m_line0_mode0_phase) {
+        m_line0_mode0_phase = false;
+        set_mode(Mode::Drawing);
+        break;
+      }
+
       ++m_ly;
-
       m_bus.write(0xFF44, m_ly);
+
+      m_lcd_on_line0 = false;
 
       if (m_ly == 144) {
         const u8 stat = m_bus.read(0xFF41);
@@ -133,23 +173,25 @@ bool Ppu::tick(u32 cycles) {
         set_mode(Mode::VBlank);
 
         if (mode2_stat_enabled) {
-          m_bus.request_interrupt(1); // STAT interrupt
+          m_bus.request_interrupt(1);
         }
 
-        m_bus.request_interrupt(0); // VBlank interrupt
-
+        m_bus.request_interrupt(0);
         frame_ready = true;
-
       } else {
         set_mode(Mode::OAMScan);
       }
+
+      break;
     }
 
-    break;
-  }
+    case Mode::VBlank:
+      if (m_cycles < 456) {
+        update_stat();
+        update_cpu_access();
+        return frame_ready;
+      }
 
-  case Mode::VBlank: {
-    if (m_cycles >= 456) {
       m_cycles -= 456;
       ++m_ly;
 
@@ -163,10 +205,9 @@ bool Ppu::tick(u32 cycles) {
         m_bus.write(0xFF44, m_ly);
         update_stat();
       }
-    }
 
-    break;
-  }
+      break;
+    }
   }
 
   update_stat();
@@ -391,4 +432,33 @@ void Ppu::render_sprites_scanline(u8 ly) {
 Color Ppu::get_color(u8 color_id, u8 palette) const {
   const u8 shade = static_cast<u8>((palette >> (color_id * 2)) & 0x03);
   return GB_COLORS[shade];
+}
+
+void Ppu::update_cpu_access() {
+  if (!m_lcd_enabled) {
+    m_bus.ppu_set_cpu_access(true, true);
+    return;
+  }
+
+  bool vram_accessible = true;
+  bool oam_accessible = true;
+
+  switch (m_mode) {
+  case Mode::HBlank:
+  case Mode::VBlank:
+    // Both are accessible outside rendering/OAM scan.
+    break;
+
+  case Mode::OAMScan:
+    // Allow access during the final OAM-scan machine cycle.
+    oam_accessible = m_cycles >= 76;
+    break;
+
+  case Mode::Drawing:
+    vram_accessible = false;
+    oam_accessible = false;
+    break;
+  }
+
+  m_bus.ppu_set_cpu_access(vram_accessible, oam_accessible);
 }

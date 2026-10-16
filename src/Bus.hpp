@@ -25,6 +25,9 @@ public:
   [[nodiscard]] u8 read(u16 addr) const;
   void write(u16 addr, u8 value);
 
+  [[nodiscard]] u8 cpu_read(u16 addr) const;
+  void cpu_write(u16 addr, u8 value);
+
   [[nodiscard]] u8 get_if() const { return m_io[0x0F]; }
   void set_if(u8 value) { m_io[0x0F] = value; }
 
@@ -69,6 +72,11 @@ public:
   void increment_tima();
   void complete_tima_reload();
 
+  void ppu_set_cpu_access(bool vram_accessible, bool oam_accessible) {
+    m_cpu_vram_accessible = vram_accessible;
+    m_cpu_oam_accessible = oam_accessible;
+  }
+
 private:
   const std::vector<u8> &m_rom;
   std::array<u8, 0x2000> m_vram{}; // video ram
@@ -86,4 +94,7 @@ private:
   u16 m_div_counter{};
   u8 m_tima_reload_delay{};
   TimaReloadPhase m_tima_reload_phase{TimaReloadPhase::None};
+
+  bool m_cpu_vram_accessible{true};
+  bool m_cpu_oam_accessible{true};
 };

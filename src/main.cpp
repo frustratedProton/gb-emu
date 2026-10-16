@@ -57,8 +57,17 @@ static void update_joypad(Bus &bus) {
 
 void run_emulator(const std::vector<u8> &rom) {
   Bus bus{rom};
-  Cpu cpu{bus};
   Ppu ppu{bus};
+
+  bool frame_ready = false;
+
+  Cpu cpu{bus, [&](u32 cycles) {
+            bus.tick(cycles);
+
+            if (ppu.tick(cycles)) {
+              frame_ready = true;
+            }
+          }};
 
   InitWindow(GB_WIDTH * SCALE, GB_HEIGHT * SCALE, "GB Emulator");
   SetTargetFPS(60);
@@ -70,12 +79,10 @@ void run_emulator(const std::vector<u8> &rom) {
   while (!WindowShouldClose()) {
     update_joypad(bus);
 
-    bool frame_ready = false;
+    frame_ready = false;
 
     while (!frame_ready) {
-      const u32 cycles = cpu.step();
-
-      frame_ready = ppu.tick(cycles);
+      auto val = cpu.step();
     }
 
     UpdateTexture(texture, ppu.framebuffer().data());

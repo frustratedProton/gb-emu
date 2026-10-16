@@ -30,6 +30,8 @@ public:
     return m_framebuffer;
   }
 
+  void update_cpu_access();
+
 private:
   enum class Mode : u8 {
     HBlank = 0,
@@ -65,4 +67,7 @@ private:
   bool m_stat_irq_line{};
 
   u8 m_window_line{};
+
+  bool m_lcd_on_line0{};
+  bool m_line0_mode0_phase{};
 };

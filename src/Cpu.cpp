@@ -21,23 +21,29 @@ void Cpu::reset_post_boot_dmg() {
 }
 
 void Cpu::advance_cycles(u32 cycles) {
-  m_bus.tick(cycles);
+  if (m_clock) {
+    m_clock(cycles);
+  } else {
+
+    m_bus.tick(cycles);
+  }
+
   m_step_cycles += cycles;
 }
 
 u8 Cpu::timed_read(u16 addr) {
-  const u8 value = m_bus.read(addr);
+  const u8 value = m_bus.cpu_read(addr);
   advance_cycles(4);
   return value;
 }
 
 void Cpu::timed_write(u16 addr, u8 value) {
-  m_bus.write(addr, value);
+  m_bus.cpu_write(addr, value);
   advance_cycles(4);
 }
 
 u8 Cpu::timed_fetch(u16 addr) {
-  const u8 value = m_bus.read(addr);
+  const u8 value = m_bus.cpu_read(addr);
   advance_cycles(4);
   return value;
 }

@@ -2,6 +2,21 @@
 #include "types.hpp"
 #include <iostream>
 
+u8 Bus::cpu_read(u16 addr) const {
+  if (addr >= 0x8000 && addr <= 0x9FFF &&
+      !m_cpu_vram_accessible) {
+    return 0xFF;
+  }
+
+  if (addr >= 0xFE00 && addr <= 0xFE9F &&
+      !m_cpu_oam_accessible) {
+    return 0xFF;
+  }
+
+  return read(addr);
+}
+
+
 u8 Bus::read(u16 addr) const {
   // Cartridge ROM
   if (addr <= 0x7FFF) {
@@ -74,6 +89,25 @@ u8 Bus::read(u16 addr) const {
 
   // The only remaining u16 address is 0xFFFF
   return m_ie;
+}
+
+void Bus::cpu_write(u16 addr, u8 value) {
+  const bool lcd_enabled = (m_io[0x40] & 0x80) != 0;
+  const u8 mode = m_io[0x41] & 0x03;
+
+  if (lcd_enabled) {
+    // VRAM writes are blocked during Mode 3.
+    if (addr >= 0x8000 && addr <= 0x9FFF && mode == 3) {
+      return;
+    }
+
+    // OAM writes are blocked during Modes 2 and 3.
+    if (addr >= 0xFE00 && addr <= 0xFE9F && (mode == 2 || mode == 3)) {
+      return;
+    }
+  }
+
+  write(addr, value);
 }
 
 void Bus::write(u16 addr, u8 value) {
@@ -183,15 +217,6 @@ void Bus::write(u16 addr, u8 value) {
 
       const bool new_timer_signal = timer_input();
       const bool falling_edge = old_timer_signal && !new_timer_signal;
-
-      std::cerr << "TAC write: old=" << std::hex
-                << static_cast<unsigned>(old_tac)
-                << " new=" << static_cast<unsigned>(value)
-                << " DIV=" << static_cast<unsigned>(m_div_counter)
-                << " TIMA=" << static_cast<unsigned>(m_io[0x05])
-                << " old_signal=" << old_timer_signal
-                << " new_signal=" << new_timer_signal
-                << " falling_edge=" << falling_edge << '\n';
 
       if (falling_edge) {
         increment_tima();

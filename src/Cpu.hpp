@@ -2,6 +2,8 @@
 
 #include "Bus.hpp"
 #include "types.hpp"
+#include <functional>
+#include <utility>
 
 enum class Flag : u8 {
   Z = 0x80,
@@ -26,7 +28,12 @@ struct Registers {
 
 class Cpu {
 public:
-  explicit Cpu(Bus &bus) : m_bus(bus) { reset_post_boot_dmg(); }
+  using ClockCallback = std::function<void(u32)>;
+
+  explicit Cpu(Bus &bus, ClockCallback clock = {})
+      : m_bus(bus), m_clock(std::move(clock)) {
+    reset_post_boot_dmg();
+  }
 
   void reset_post_boot_dmg();
 
@@ -107,4 +114,6 @@ private:
   bool m_ime_pending{};
   bool m_halted{};
   u32 m_step_cycles{};
+
+  ClockCallback m_clock;
 };
