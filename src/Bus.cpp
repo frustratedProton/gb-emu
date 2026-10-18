@@ -3,19 +3,16 @@
 #include <iostream>
 
 u8 Bus::cpu_read(u16 addr) const {
-  if (addr >= 0x8000 && addr <= 0x9FFF &&
-      !m_cpu_vram_accessible) {
+  if (addr >= 0x8000 && addr <= 0x9FFF && !m_cpu_vram_accessible) {
     return 0xFF;
   }
 
-  if (addr >= 0xFE00 && addr <= 0xFE9F &&
-      !m_cpu_oam_accessible) {
+  if (addr >= 0xFE00 && addr <= 0xFE9F && !m_cpu_oam_accessible) {
     return 0xFF;
   }
 
   return read(addr);
 }
-
 
 u8 Bus::read(u16 addr) const {
   // Cartridge ROM
@@ -64,16 +61,7 @@ u8 Bus::read(u16 addr) const {
 
     if (addr == 0xFF00) {
       const u8 select = m_io[0x00] & 0x30;
-
-      u8 input = 0x0F;
-
-      if ((select & 0x10) == 0) {
-        input &= m_joypad_directions;
-      }
-
-      if ((select & 0x20) == 0) {
-        input &= m_joypad_buttons;
-      }
+      const u8 input = joypad_input();
 
       return static_cast<u8>(0xC0 | select | input);
     }
@@ -172,9 +160,12 @@ void Bus::write(u16 addr, u8 value) {
     }
 
     if (addr == 0xFF00) {
+      const u8 old_input = joypad_input();
+
       // Only bits 4 and 5 are writable.
       m_io[0x00] = static_cast<u8>((m_io[0x00] & 0xCF) | (value & 0x30));
 
+      check_joypad_falling_edge(old_input);
       return;
     }
 
@@ -204,9 +195,23 @@ void Bus::write(u16 addr, u8 value) {
     //
     // Bit 7: start transfer
     // Bit 0: use internal clock
-    if (addr == 0xFF02 && value == 0x81) {
-      std::cout << static_cast<char>(m_io.at(0x01)) << std::flush;
-      m_io.at(0x02) = static_cast<u8>(value & 0x7F);
+    // if (addr == 0xFF02 && value == 0x81) {
+    //   std::cout << static_cast<char>(m_io.at(0x01)) << std::flush;
+    //   m_io.at(0x02) = static_cast<u8>(value & 0x7F);
+    // }
+
+    if (addr == 0xFF02) {
+      m_io[0x02] = value;
+
+      // Serial transfer: SC write of 0x81 starts transfer immediately.
+      if (value == 0x81) {
+        std::cout << static_cast<char>(m_io[0x01]) << std::flush;
+
+        // Transfer completes immediately in this emulator.
+        m_io[0x02] = static_cast<u8>(value & 0x7F);
+      }
+
+      return;
     }
 
     if (addr == 0xFF07) {
@@ -251,6 +256,52 @@ void Bus::write(u16 addr, u8 value) {
   }
 
   m_ie = value;
+}
+
+// void Bus::set_joypad_state(u8 directions, u8 buttons) {
+//   // Active-low
+//   // 1 -> released
+//   // 0 -> pressed
+//   m_joypad_directions = directions & 0x0F;
+//   m_joypad_buttons = buttons & 0x0F;
+// }
+
+u8 Bus::joypad_input() const {
+  const u8 select = m_io[0x00] & 0x30;
+
+  u8 input = 0x0F;
+
+  // Bit 4 / P14 low selects directions.
+  if ((select & 0x10) == 0) {
+    input &= m_joypad_directions;
+  }
+
+  // Bit 5 / P15 low selects action buttons.
+  if ((select & 0x20) == 0) {
+    input &= m_joypad_buttons;
+  }
+
+  return input;
+}
+
+void Bus::check_joypad_falling_edge(u8 old_input) {
+  const u8 new_input = joypad_input();
+
+  const u8 falling_edges =
+      static_cast<u8>(old_input & static_cast<u8>(~new_input));
+
+  if ((falling_edges & 0x0F) != 0) {
+    request_interrupt(4);
+  }
+}
+
+void Bus::set_joypad_state(u8 directions, u8 buttons) {
+  const u8 old_input = joypad_input();
+
+  m_joypad_directions = directions & 0x0F;
+  m_joypad_buttons = buttons & 0x0F;
+
+  check_joypad_falling_edge(old_input);
 }
 
 void Bus::complete_tima_reload() {

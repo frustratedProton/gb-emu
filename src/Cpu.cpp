@@ -999,11 +999,10 @@ u32 Cpu::execute_instruction() {
 
     // STOP
   case 0x10: {
-    static_cast<void>(fetch8()); // consume the second byte (always 0x00)
-    // return 4;
+    static_cast<void>(m_bus.cpu_read(m_registers.pc));
+    m_registers.pc = static_cast<u16>(m_registers.pc + 1);
 
-    // TODO : TEMP CHANGE TO 8 cycle return
-    return 8;
+    return 4;
   }
 
   // LD (u16), SP

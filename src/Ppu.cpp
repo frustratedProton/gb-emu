@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <iostream>
 
 Ppu::Ppu(Bus &bus) : m_bus(bus) {
   m_bus.write(0xFF44, 0);

@@ -1595,6 +1595,22 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   assert(cpu.step() == 4);
   assert(!cpu.get_flag(Flag::C)); // was set, now clear
+
+  std::vector<u8> empty_rom;
+
+  bus.set_if(0);
+
+  // Select directions only.
+  bus.write(0xFF00, 0x10);
+
+  // Nothing pressed.
+  bus.set_joypad_state(0x0F, 0x0F);
+  bus.set_if(0);
+
+  // Press Right: active-low bit 0 changes 1 -> 0.
+  bus.set_joypad_state(0x0E, 0x0F);
+
+  assert((bus.get_if() & (1 << 4)) != 0);
 }
 
 std::vector<u8> create_test_rom() {

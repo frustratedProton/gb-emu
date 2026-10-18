@@ -35,13 +35,15 @@ public:
 
   void request_interrupt(u8 bit);
 
-  void set_joypad_state(u8 directions, u8 buttons) {
-    // Active-low
-    // 1 -> released
-    // 0 -> pressed
-    m_joypad_directions = directions & 0x0F;
-    m_joypad_buttons = buttons & 0x0F;
-  }
+  //   void set_joypad_state(u8 directions, u8 buttons) {
+  //     // Active-low
+  //     // 1 -> released
+  //     // 0 -> pressed
+  //     m_joypad_directions = directions & 0x0F;
+  //     m_joypad_buttons = buttons & 0x0F;
+  //   }
+
+  void set_joypad_state(u8 directions, u8 buttons);
 
   void ppu_set_stat(u8 value) { m_io[0x41] = value; }
 
@@ -97,4 +99,7 @@ private:
 
   bool m_cpu_vram_accessible{true};
   bool m_cpu_oam_accessible{true};
+
+  [[nodiscard]] u8 joypad_input() const;
+  void check_joypad_falling_edge(u8 old_input);
 };
