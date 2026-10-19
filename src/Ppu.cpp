@@ -241,10 +241,17 @@ void Ppu::render_scanline() {
   }
 
   // Window
+  const bool bg_window_enabled = (lcdc & 0x01) != 0;
+
+  if (bg_window_enabled) {
+    render_background_scanline(m_ly);
+  }
+
   const u8 wy = m_bus.read(0xFF4A);
   const u8 wx = m_bus.read(0xFF4B);
 
-  const bool window_visible = (lcdc & 0x20) && m_ly >= wy && wx <= 166;
+  const bool window_visible =
+      bg_window_enabled && (lcdc & 0x20) && m_ly >= wy && wx <= 166;
 
   if (window_visible) {
     render_window_scanline(m_ly);
