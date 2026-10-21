@@ -1601,7 +1601,7 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   bus.set_if(0);
 
   // Select directions only.
-  bus.write(0xFF00, 0x10);
+  bus.write(0xFF00, 0x20);
 
   // Nothing pressed.
   bus.set_joypad_state(0x0F, 0x0F);

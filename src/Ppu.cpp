@@ -240,13 +240,10 @@ void Ppu::render_scanline() {
     render_background_scanline(m_ly);
   }
 
-  // Window
+  // LCDC bit 0 controls the DMG background and window display
   const bool bg_window_enabled = (lcdc & 0x01) != 0;
 
-  if (bg_window_enabled) {
-    render_background_scanline(m_ly);
-  }
-
+  // Window
   const u8 wy = m_bus.read(0xFF4A);
   const u8 wx = m_bus.read(0xFF4B);
 
@@ -359,34 +356,68 @@ void Ppu::render_sprites_scanline(u8 ly) {
   const u8 lcdc = m_bus.read(0xFF40);
   const int sprite_height = (lcdc & 0x04) ? 16 : 8;
 
-  int sprites_on_line = 0;
+  struct VisibleSprite {
+    int oam_index;
+    int x;
+    int y;
+    u8 tile_id;
+    u8 attributes;
+  };
 
-  // First visible sprite in OAM wins
-  std::array<bool, GB_WIDTH> pixel_used{};
+  // Hardware selects at most 10 sprites in OAM order.
+  std::array<VisibleSprite, 10> sprites{};
+  int sprite_count = 0;
 
-  for (int sprite_index = 0; sprite_index < 40 && sprites_on_line < 10;
+  for (int sprite_index = 0; sprite_index < 40 && sprite_count < 10;
        ++sprite_index) {
+    const u16 address = static_cast<u16>(0xFE00 + sprite_index * 4);
 
-    const u16 oam_address = static_cast<u16>(0xFE00 + sprite_index * 4);
-    const int sprite_y = static_cast<int>(m_bus.read(oam_address)) - 16;
-    const int sprite_x = static_cast<int>(m_bus.read(oam_address + 1)) - 8;
-    u8 tile_id = m_bus.read(oam_address + 2);
-    const u8 attributes = m_bus.read(oam_address + 3);
+    const int sprite_y = static_cast<int>(m_bus.read(address)) - 16;
+    const int sprite_x = static_cast<int>(m_bus.read(address + 1)) - 8;
+
     const int row_in_sprite = static_cast<int>(ly) - sprite_y;
 
     if (row_in_sprite < 0 || row_in_sprite >= sprite_height) {
       continue;
     }
 
-    ++sprites_on_line;
+    sprites[sprite_count++] = {
+        sprite_index,
+        sprite_x,
+        sprite_y,
+        m_bus.read(address + 2),
+        m_bus.read(address + 3),
+    };
+  }
 
-    int row = row_in_sprite;
+  // On DMG, lower X coordinate has priority.
+  // If X is equal, lower OAM index has priority.
+  std::stable_sort(sprites.begin(), sprites.begin() + sprite_count,
+                   [](const VisibleSprite &a, const VisibleSprite &b) {
+                     if (a.x != b.x) {
+                       return a.x < b.x;
+                     }
 
-    if (attributes & 0x40) {
+                     return a.oam_index < b.oam_index;
+                   });
+
+  // Tracks which screen pixels have already been claimed
+  // by a higher-priority sprite.
+  std::array<bool, GB_WIDTH> pixel_used{};
+
+  for (int sprite_number = 0; sprite_number < sprite_count; ++sprite_number) {
+    const VisibleSprite &sprite = sprites[sprite_number];
+
+    int row = static_cast<int>(ly) - sprite.y;
+
+    if (sprite.attributes & 0x40) {
       row = sprite_height - 1 - row;
     }
 
-    // 8x16 sprites use two consecutive tiles
+    u8 tile_id = sprite.tile_id;
+
+    // 8x16 sprites use two consecutive tiles.
+    // The low bit of the tile number is ignored.
     if (sprite_height == 16) {
       tile_id &= 0xFE;
       tile_id = static_cast<u8>(tile_id + row / 8);
@@ -394,13 +425,15 @@ void Ppu::render_sprites_scanline(u8 ly) {
     }
 
     const u16 tile_address = static_cast<u16>(0x8000 + tile_id * 16 + row * 2);
+
     const u8 low = m_bus.read(tile_address);
     const u8 high = m_bus.read(tile_address + 1);
-    const u8 palette =
-        (attributes & 0x10) ? m_bus.read(0xFF49) : m_bus.read(0xFF48);
+
+    const u8 palette = (sprite.attributes & 0x10) ? m_bus.read(0xFF49)  // OBP1
+                                                  : m_bus.read(0xFF48); // OBP0
 
     for (int pixel = 0; pixel < 8; ++pixel) {
-      const int screen_x = sprite_x + pixel;
+      const int screen_x = sprite.x + pixel;
 
       if (screen_x < 0 || screen_x >= GB_WIDTH) {
         continue;
@@ -410,29 +443,35 @@ void Ppu::render_sprites_scanline(u8 ly) {
         continue;
       }
 
-      const int tile_x = (attributes & 0x20) ? 7 - pixel : pixel;
+      const int tile_x = (sprite.attributes & 0x20) ? 7 - pixel : pixel;
+
       const u8 bit = static_cast<u8>(7 - tile_x);
+
       const u8 low_bit = static_cast<u8>((low >> bit) & 1);
+
       const u8 high_bit = static_cast<u8>((high >> bit) & 1);
+
       const u8 color_id = static_cast<u8>((high_bit << 1) | low_bit);
 
-      // Sprite color 0 is transparent
+      // Color 0 is transparent and does not claim the pixel.
       if (color_id == 0) {
         continue;
       }
 
-      // Claim the pixel before checking background priority
+      // Claim the pixel before applying background priority.
       pixel_used[screen_x] = true;
 
-      const std::size_t index =
+      const std::size_t framebuffer_index =
           static_cast<std::size_t>(ly) * GB_WIDTH + screen_x;
 
-      // Attribute bit 7: sprite behind non-zero background
-      if ((attributes & 0x80) && m_bg_color_ids[index] != 0) {
+      // Attribute bit 7: sprite is behind a non-zero
+      // background/window pixel.
+      if ((sprite.attributes & 0x80) &&
+          m_bg_color_ids[framebuffer_index] != 0) {
         continue;
       }
 
-      m_framebuffer[index] = get_color(color_id, palette);
+      m_framebuffer[framebuffer_index] = get_color(color_id, palette);
     }
   }
 }
