@@ -20,6 +20,8 @@ public:
     m_io[0x49] = 0xFF; // OBP1
     m_io[0x4A] = 0x00; // WY
     m_io[0x4B] = 0x00; // WX
+
+    init_cartrigde();
   }
 
   [[nodiscard]] u8 read(u16 addr) const;
@@ -102,4 +104,22 @@ private:
 
   [[nodiscard]] u8 joypad_input() const;
   void check_joypad_falling_edge(u8 old_input);
+
+  bool m_is_mbc1{false};
+
+  // MBC1 registers
+  bool m_ram_enabled{false};
+  u8 m_rom_bank_low5{1};
+  u8 m_bank_high2{0};
+  bool m_banking_mode{false};
+
+  std::vector<u8> m_external_ram;
+
+  void init_cartrigde();
+
+  [[nodiscard]] u8 read_cartridge_rom(u16 addr) const;
+  void write_cartridge_control(u16 addr, u8 value);
+
+  [[nodiscard]] u8 read_cartridge_ram(u16 addr) const;
+  void write_cartridge_ram(u16 addr, u8 value);
 };

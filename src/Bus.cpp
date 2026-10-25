@@ -1,5 +1,6 @@
 #include "Bus.hpp"
 #include "types.hpp"
+#include <cstddef>
 #include <iostream>
 
 u8 Bus::cpu_read(u16 addr) const {
@@ -14,13 +15,112 @@ u8 Bus::cpu_read(u16 addr) const {
   return read(addr);
 }
 
+void Bus::init_cartrigde() {
+  if (m_rom.size() <= 0x0147) {
+    return;
+  }
+
+  const u8 cartridge_type = m_rom[0x0147];
+
+  m_is_mbc1 = cartridge_type == 0x01 || cartridge_type == 0x02 ||
+              cartridge_type == 0x03;
+
+  if (!m_is_mbc1 || m_rom.size() <= 0x0149) {
+    return;
+  }
+
+  const u8 ram_size = m_rom[0x0149];
+
+  std::size_t ram_bytes = 0;
+
+  switch (ram_size) {
+  case 0x00:
+    ram_bytes = 0;
+    break;
+  case 0x01:
+    ram_bytes = 0x0800;
+    break;
+  case 0x02:
+    ram_bytes = 0x2000;
+    break;
+  case 0x03:
+    ram_bytes = 0x8000;
+    break;
+  default:
+    ram_bytes = 0;
+    break;
+  }
+
+  m_external_ram.resize(ram_bytes);
+}
+
+u8 Bus::read_cartridge_rom(u16 addr) const {
+  if (m_rom.empty())
+    return 0xFF;
+
+  if (!m_is_mbc1)
+    return static_cast<std::size_t>(addr) < m_rom.size() ? m_rom.at(addr)
+                                                         : 0xFF;
+
+  const std::size_t rom_bank_count = (m_rom.size() + 0x3FFF) / 0x4000;
+
+  if (rom_bank_count == 0)
+    return 0xFF;
+
+  std::size_t bank = 0;
+
+  if (addr < 0x4000) {
+    // In RAM banking mode, the upper bank bits also affect
+    // the normally fixed 0x0000-0x3FFF region.
+    bank = m_banking_mode ? static_cast<std::size_t>(m_bank_high2) << 5 : 0;
+  } else {
+    bank = (static_cast<std::size_t>(m_bank_high2) << 5) | m_rom_bank_low5;
+  }
+
+  bank %= rom_bank_count;
+
+  const std::size_t offset = static_cast<std::size_t>(addr & 0x3FFF);
+
+  const std::size_t index = bank * 0x4000 + offset;
+
+  return index < m_rom.size() ? m_rom.at(index) : 0xFF;
+}
+
+void Bus::write_cartridge_control(u16 addr, u8 value) {
+  if (!m_is_mbc1)
+    return;
+
+  if (addr <= 0x1FFF) {
+    // RAM enable requires low nibble 0xA
+    m_ram_enabled = (value & 0x0F) == 0x0A;
+    return;
+  }
+
+  if (addr <= 0x3FFF) {
+    m_rom_bank_low5 = static_cast<u8>(value & 0x1F);
+
+    if (m_rom_bank_low5 == 0)
+      m_rom_bank_low5 = 1;
+
+    return;
+  }
+
+  if (addr <= 0x5FFF) {
+    // upper two ROM bank bits,
+    // or RAM bank number
+    // when in RAM bank mode
+
+    m_bank_high2 = static_cast<u8>(value & 0x03);
+    return;
+  }
+
+  m_banking_mode = (value & 0x01) != 0;
+}
+
 u8 Bus::read(u16 addr) const {
   // Cartridge ROM
   if (addr <= 0x7FFF) {
-    if (static_cast<std::size_t>(addr) < m_rom.size())
-      return m_rom.at(addr);
-
-    return 0xFF;
+    return read_cartridge_rom(addr);
   }
 
   // Video RAM
@@ -100,8 +200,10 @@ void Bus::cpu_write(u16 addr, u8 value) {
 
 void Bus::write(u16 addr, u8 value) {
   // cartridge ROM is read-only for ROM-only cartridges
-  if (addr <= 0x7FFF)
+  if (addr <= 0x7FFF) {
+    write_cartridge_control(addr, value);
     return;
+  }
 
   if (addr <= 0x9FFF) {
     m_vram.at(addr - 0x8000) = value;
