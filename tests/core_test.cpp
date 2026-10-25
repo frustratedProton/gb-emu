@@ -1611,6 +1611,25 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   bus.set_joypad_state(0x0E, 0x0F);
 
   assert((bus.get_if() & (1 << 4)) != 0);
+
+  std::vector<u8> mbc1_rom(0x8000, 0x00);
+
+  // MBC1 + RAM + battery
+  mbc1_rom[0x0147] = 0x03;
+
+  // 32 KiB external RAM
+  mbc1_rom[0x0149] = 0x03;
+
+  Bus mbc1_bus{mbc1_rom};
+
+  mbc1_bus.write(0x0000, 0x0A); // Enable RAM
+  mbc1_bus.write(0xA000, 0x42);
+
+  assert(mbc1_bus.read(0xA000) == 0x42);
+
+  mbc1_bus.write(0x0000, 0x00); // Disable RAM
+
+  assert(mbc1_bus.read(0xA000) == 0xFF);
 }
 
 std::vector<u8> create_test_rom() {

@@ -117,6 +117,44 @@ void Bus::write_cartridge_control(u16 addr, u8 value) {
   m_banking_mode = (value & 0x01) != 0;
 }
 
+u8 Bus::read_cartridge_ram(u16 addr) const {
+  if (!m_is_mbc1 || !m_ram_enabled || m_external_ram.empty()) {
+    return 0xFF;
+  }
+
+  const std::size_t ram_bank =
+      m_banking_mode ? static_cast<std::size_t>(m_bank_high2) : 0;
+
+  const std::size_t offset = static_cast<std::size_t>(addr - 0xA000);
+
+  const std::size_t index = ram_bank * 0x2000 + offset;
+
+  if (index >= m_external_ram.size()) {
+    return 0xFF;
+  }
+
+  return m_external_ram.at(index);
+}
+
+void Bus::write_cartridge_ram(u16 addr, u8 value) {
+  if (!m_is_mbc1 || !m_ram_enabled || m_external_ram.empty()) {
+    return;
+  }
+
+  const std::size_t ram_bank =
+      m_banking_mode ? static_cast<std::size_t>(m_bank_high2) : 0;
+
+  const std::size_t offset = static_cast<std::size_t>(addr - 0xA000);
+
+  const std::size_t index = ram_bank * 0x2000 + offset;
+
+  if (index >= m_external_ram.size()) {
+    return;
+  }
+
+  m_external_ram.at(index) = value;
+}
+
 u8 Bus::read(u16 addr) const {
   // Cartridge ROM
   if (addr <= 0x7FFF) {
@@ -130,7 +168,7 @@ u8 Bus::read(u16 addr) const {
 
   // External cartridge RAM; not supported yet
   if (addr <= 0xBFFF) {
-    return 0xFF;
+    return read_cartridge_ram(addr);
   }
 
   // Work RAM
@@ -211,8 +249,10 @@ void Bus::write(u16 addr, u8 value) {
   }
 
   // external cartridge RAM is unsupported for now
-  if (addr <= 0xBFFF)
+  if (addr <= 0xBFFF) {
+    write_cartridge_ram(addr, value);
     return;
+  }
 
   if (addr <= 0xDFFF) {
     m_wram.at(addr - 0xC000) = value;
