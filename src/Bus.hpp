@@ -3,13 +3,15 @@
 #include "types.hpp"
 
 #include <array>
+#include <string>
 #include <vector>
 
 enum class TimaReloadPhase : u8 { None, Overflow, Reload };
 
 class Bus {
 public:
-  explicit Bus(const std::vector<u8> &rom) : m_rom(rom) {
+  explicit Bus(const std::vector<u8> &rom, const std::string &save_path = {})
+      : m_rom(rom), m_save_path(save_path) {
     m_io[0x00] = 0xCF; // JOYP: no buttons pressed
     m_io[0x40] = 0x91; // LCDC
     m_io[0x42] = 0x00; // SCY
@@ -81,6 +83,8 @@ public:
     m_cpu_oam_accessible = oam_accessible;
   }
 
+  void save_battery_ram();
+
 private:
   const std::vector<u8> &m_rom;
   std::array<u8, 0x2000> m_vram{}; // video ram
@@ -122,4 +126,10 @@ private:
 
   [[nodiscard]] u8 read_cartridge_ram(u16 addr) const;
   void write_cartridge_ram(u16 addr, u8 value);
+
+  void load_battery_ram();
+
+  bool m_has_battery{false};
+  bool m_ram_dirty{false};
+  std::string m_save_path;
 };

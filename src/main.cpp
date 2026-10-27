@@ -8,8 +8,10 @@
 
 #include <array>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 static constexpr int SCALE = 3;
@@ -55,8 +57,14 @@ static void update_joypad(Bus &bus) {
   bus.set_joypad_state(directions, buttons);
 }
 
-void run_emulator(const std::vector<u8> &rom) {
-  Bus bus{rom};
+static std::string save_path_for(const std::string &rom_path) {
+  std::filesystem::path path{rom_path};
+  path.replace_extension(".sav");
+  return path.string();
+}
+
+void run_emulator(const std::vector<u8> &rom, const std::string &rom_path) {
+  Bus bus{rom, save_path_for(rom_path)};
   Ppu ppu{bus};
 
   bool frame_ready = false;
@@ -93,6 +101,7 @@ void run_emulator(const std::vector<u8> &rom) {
     EndDrawing();
   }
 
+  bus.save_battery_ram();
   UnloadTexture(texture);
   CloseWindow();
 }
@@ -112,7 +121,7 @@ int main(int argc, char *argv[]) {
     if (rom.size() < 0x150)
       throw std::runtime_error{"ROM too small"};
 
-    run_emulator(rom);
+    run_emulator(rom, argv[1]);
 
   } catch (const std::exception &error) {
     std::cerr << "Error: " << error.what() << '\n';

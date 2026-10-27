@@ -1678,6 +1678,33 @@ void run_cpu_tests(const std::vector<u8> &rom) {
     assert(mbc1_bus.read(0x0000) == 0);
     assert(mbc1_bus.read(0x4000) == 33);
   }
+
+  const std::string save_path = "test_mbc1.sav";
+
+  {
+    std::vector<u8> rom(0x8000, 0x00);
+    rom[0x0147] = 0x03; // MBC1 + RAM + battery
+    rom[0x0149] = 0x03; // 32 KiB RAM
+
+    Bus bus{rom, save_path};
+
+    bus.write(0x0000, 0x0A); // Enable RAM
+    bus.write(0xA000, 0x42);
+
+    bus.save_battery_ram();
+  }
+
+  {
+    std::vector<u8> rom(0x8000, 0x00);
+    rom[0x0147] = 0x03;
+    rom[0x0149] = 0x03;
+
+    Bus bus{rom, save_path};
+
+    bus.write(0x0000, 0x0A); // Enable RAM
+
+    assert(bus.read(0xA000) == 0x42);
+  }
 }
 
 std::vector<u8> create_test_rom() {

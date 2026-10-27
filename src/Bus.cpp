@@ -1,6 +1,7 @@
 #include "Bus.hpp"
 #include "types.hpp"
 #include <cstddef>
+#include <fstream>
 #include <iostream>
 
 u8 Bus::cpu_read(u16 addr) const {
@@ -15,6 +16,41 @@ u8 Bus::cpu_read(u16 addr) const {
   return read(addr);
 }
 
+void Bus::load_battery_ram() {
+  if (!m_has_battery || m_save_path.empty() || m_external_ram.empty()) {
+    return;
+  }
+
+  std::ifstream file(m_save_path, std::ios::binary);
+
+  if (!file) {
+    return;
+  }
+
+  file.read(reinterpret_cast<char *>(m_external_ram.data()),
+            static_cast<std::streamsize>(m_external_ram.size()));
+}
+
+void Bus::save_battery_ram() {
+  if (!m_has_battery || !m_ram_dirty || m_save_path.empty() ||
+      m_external_ram.empty()) {
+    return;
+  }
+
+  std::ofstream file(m_save_path, std::ios::binary | std::ios::trunc);
+
+  if (!file) {
+    return;
+  }
+
+  file.write(reinterpret_cast<const char *>(m_external_ram.data()),
+             static_cast<std::streamsize>(m_external_ram.size()));
+
+  if (file) {
+    m_ram_dirty = false;
+  }
+}
+
 void Bus::init_cartrigde() {
   if (m_rom.size() <= 0x0147) {
     return;
@@ -24,6 +60,8 @@ void Bus::init_cartrigde() {
 
   m_is_mbc1 = cartridge_type == 0x01 || cartridge_type == 0x02 ||
               cartridge_type == 0x03;
+
+  m_has_battery = cartridge_type == 0x03;
 
   if (!m_is_mbc1 || m_rom.size() <= 0x0149) {
     return;
@@ -52,6 +90,7 @@ void Bus::init_cartrigde() {
   }
 
   m_external_ram.resize(ram_bytes);
+  load_battery_ram();
 }
 
 u8 Bus::read_cartridge_rom(u16 addr) const {
@@ -153,6 +192,7 @@ void Bus::write_cartridge_ram(u16 addr, u8 value) {
   }
 
   m_external_ram.at(index) = value;
+  m_ram_dirty = true;
 }
 
 u8 Bus::read(u16 addr) const {
