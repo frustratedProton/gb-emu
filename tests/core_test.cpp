@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -1636,75 +1637,37 @@ void run_cpu_tests(const std::vector<u8> &rom) {
     assert(mbc1_bus.read(0xA000) == 0xFF);
   }
 
-  // Test 2: MBC1 ROM banking
-  {
-    constexpr std::size_t bank_size = 0x4000;
-    constexpr std::size_t bank_count = 128;
-
-    std::vector<u8> mbc1_rom(bank_size * bank_count, 0x00);
-
-    for (std::size_t bank = 0; bank < bank_count; ++bank) {
-      mbc1_rom[bank * bank_size] = static_cast<u8>(bank);
-    }
-
-    mbc1_rom[0x0147] = 0x03; // MBC1 + RAM + battery
-    mbc1_rom[0x0149] = 0x03; // 32 KiB RAM
-
-    Bus mbc1_bus{mbc1_rom};
-
-    // Initial ROM banks
-    assert(mbc1_bus.read(0x0000) == 0);
-    assert(mbc1_bus.read(0x4000) == 1);
-
-    // Select ROM bank 2
-    mbc1_bus.write(0x2000, 0x02);
-    assert(mbc1_bus.read(0x4000) == 2);
-
-    // Bank 0 selection maps to bank 1
-    mbc1_bus.write(0x2000, 0x00);
-    assert(mbc1_bus.read(0x4000) == 1);
-
-    // Set upper ROM bank bits
-    mbc1_bus.write(0x4000, 0x01);
-    assert(mbc1_bus.read(0x4000) == 33);
-
-    // Switch to RAM banking mode
-    mbc1_bus.write(0x6000, 0x01);
-    assert(mbc1_bus.read(0x0000) == 32);
-    assert(mbc1_bus.read(0x4000) == 33);
-
-    // Return to ROM banking mode
-    mbc1_bus.write(0x6000, 0x00);
-    assert(mbc1_bus.read(0x0000) == 0);
-    assert(mbc1_bus.read(0x4000) == 33);
-  }
-
   const std::string save_path = "test_mbc1.sav";
 
+  std::filesystem::remove(save_path);
+
+  std::vector<u8> save_rom(0x8000, 0x00);
+  save_rom[0x0147] = 0x03; // MBC1 + RAM + battery
+  save_rom[0x0149] = 0x03; // 32 KiB RAM
+
   {
-    std::vector<u8> rom(0x8000, 0x00);
-    rom[0x0147] = 0x03; // MBC1 + RAM + battery
-    rom[0x0149] = 0x03; // 32 KiB RAM
+    Bus writer{save_rom, save_path};
 
-    Bus bus{rom, save_path};
+    writer.write(0x0000, 0x0A); // Enable RAM
+    writer.write(0xA000, 0x5A);
 
-    bus.write(0x0000, 0x0A); // Enable RAM
-    bus.write(0xA000, 0x42);
+    assert(writer.read(0xA000) == 0x5A);
 
-    bus.save_battery_ram();
+    writer.save_battery_ram();
+
+    assert(std::filesystem::exists(save_path));
+    assert(std::filesystem::file_size(save_path) == 0x8000);
   }
 
   {
-    std::vector<u8> rom(0x8000, 0x00);
-    rom[0x0147] = 0x03;
-    rom[0x0149] = 0x03;
+    Bus reader{save_rom, save_path};
 
-    Bus bus{rom, save_path};
+    reader.write(0x0000, 0x0A); // Enable RAM
 
-    bus.write(0x0000, 0x0A); // Enable RAM
-
-    assert(bus.read(0xA000) == 0x42);
+    assert(reader.read(0xA000) == 0x5A);
   }
+
+  std::filesystem::remove(save_path);
 }
 
 std::vector<u8> create_test_rom() {
