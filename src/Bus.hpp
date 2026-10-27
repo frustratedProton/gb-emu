@@ -132,4 +132,11 @@ private:
   bool m_has_battery{false};
   bool m_ram_dirty{false};
   std::string m_save_path;
+
+  // MCB1MB support
+  bool m_mbc1_multicart{false};
+
+  [[nodiscard]] bool has_valid_header_checksum(std::size_t base) const;
+
+  [[nodiscard]] bool detect_mbc1_multicart() const;
 };

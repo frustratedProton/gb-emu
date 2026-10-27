@@ -60,6 +60,7 @@ void Bus::init_cartrigde() {
 
   m_is_mbc1 = cartridge_type == 0x01 || cartridge_type == 0x02 ||
               cartridge_type == 0x03;
+  m_mbc1_multicart = detect_mbc1_multicart();
 
   m_has_battery = cartridge_type == 0x03;
 
@@ -108,12 +109,19 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
 
   std::size_t bank = 0;
 
-  if (addr < 0x4000) {
-    // In RAM banking mode, the upper bank bits also affect
-    // the normally fixed 0x0000-0x3FFF region.
-    bank = m_banking_mode ? static_cast<std::size_t>(m_bank_high2) << 5 : 0;
+  if (m_mbc1_multicart) {
+    if (addr < 0x4000) {
+      bank = m_banking_mode ? static_cast<std::size_t>(m_bank_high2) << 4 : 0;
+    } else {
+      bank = (static_cast<std::size_t>(m_bank_high2) << 4) |
+             (m_rom_bank_low5 & 0x0F);
+    }
   } else {
-    bank = (static_cast<std::size_t>(m_bank_high2) << 5) | m_rom_bank_low5;
+    if (addr < 0x4000) {
+      bank = m_banking_mode ? static_cast<std::size_t>(m_bank_high2) << 5 : 0;
+    } else {
+      bank = (static_cast<std::size_t>(m_bank_high2) << 5) | m_rom_bank_low5;
+    }
   }
 
   bank %= rom_bank_count;
@@ -166,11 +174,8 @@ u8 Bus::read_cartridge_ram(u16 addr) const {
 
   const std::size_t offset = static_cast<std::size_t>(addr - 0xA000);
 
-  const std::size_t index = ram_bank * 0x2000 + offset;
-
-  if (index >= m_external_ram.size()) {
-    return 0xFF;
-  }
+  const std::size_t index =
+      (ram_bank * 0x2000 + offset) % m_external_ram.size();
 
   return m_external_ram.at(index);
 }
@@ -185,14 +190,45 @@ void Bus::write_cartridge_ram(u16 addr, u8 value) {
 
   const std::size_t offset = static_cast<std::size_t>(addr - 0xA000);
 
-  const std::size_t index = ram_bank * 0x2000 + offset;
-
-  if (index >= m_external_ram.size()) {
-    return;
-  }
+  const std::size_t index =
+      (ram_bank * 0x2000 + offset) % m_external_ram.size();
 
   m_external_ram.at(index) = value;
   m_ram_dirty = true;
+}
+
+bool Bus::has_valid_header_checksum(std::size_t base) const {
+  if (base + 0x014D >= m_rom.size()) {
+    return false;
+  }
+
+  u8 checksum = 0;
+
+  for (std::size_t i = 0x0134; i <= 0x014C; ++i) {
+    checksum = static_cast<u8>(checksum - m_rom[base + i] - 1);
+  }
+
+  return checksum == m_rom[base + 0x014D];
+}
+
+bool Bus::detect_mbc1_multicart() const {
+  // MBC1M multicarts are 1 MiB MBC1 cartridges.
+  if (!m_is_mbc1 || m_rom.size() != 0x100000) {
+    return false;
+  }
+
+  int valid_slots = 0;
+
+  // Check the 256 KiB game slots after the menu.
+  for (std::size_t slot = 1; slot <= 3; ++slot) {
+    const std::size_t base = slot * 0x40000;
+
+    if (has_valid_header_checksum(base)) {
+      ++valid_slots;
+    }
+  }
+
+  return valid_slots >= 2;
 }
 
 u8 Bus::read(u16 addr) const {
