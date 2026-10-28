@@ -62,9 +62,13 @@ void Bus::init_cartrigde() {
               cartridge_type == 0x03;
   m_mbc1_multicart = detect_mbc1_multicart();
 
-  m_has_battery = cartridge_type == 0x03;
+  m_is_mbc5 = cartridge_type >= 0x19 && cartridge_type <= 0x1E;
 
-  if (!m_is_mbc1 || m_rom.size() <= 0x0149) {
+  m_has_battery = cartridge_type == 0x03 || // MBC1 + RAM + battery
+                  cartridge_type == 0x1B || // MBC5 + RAM + battery
+                  cartridge_type == 0x1E;   // MBC5 + rumble + RAM + battery
+
+  if ((!m_is_mbc1 && !m_is_mbc5) || m_rom.size() <= 0x0149) {
     return;
   }
 
@@ -109,7 +113,9 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
 
   std::size_t bank = 0;
 
-  if (m_mbc1_multicart) {
+  if (m_is_mbc5) {
+    bank = addr < 0x4000 ? 0 : static_cast<std::size_t>(m_mbc5_rom_bank);
+  } else if (m_mbc1_multicart) {
     if (addr < 0x4000) {
       bank = m_banking_mode ? static_cast<std::size_t>(m_bank_high2) << 4 : 0;
     } else {
@@ -117,6 +123,7 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
              (m_rom_bank_low5 & 0x0F);
     }
   } else {
+    // Existing normal MBC1 logic.
     if (addr < 0x4000) {
       bank = m_banking_mode ? static_cast<std::size_t>(m_bank_high2) << 5 : 0;
     } else {
@@ -134,6 +141,32 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
 }
 
 void Bus::write_cartridge_control(u16 addr, u8 value) {
+  if (m_is_mbc5) {
+    if (addr <= 0x1FFF) {
+      m_ram_enabled = (value & 0x0F) == 0x0A;
+      return;
+    }
+
+    if (addr <= 0x2FFF) {
+      m_mbc5_rom_bank = static_cast<u16>((m_mbc5_rom_bank & 0x0100) | value);
+      return;
+    }
+
+    if (addr <= 0x3FFF) {
+      m_mbc5_rom_bank =
+          static_cast<u16>((m_mbc5_rom_bank & 0x00FF) | ((value & 0x01) << 8));
+      return;
+    }
+
+    if (addr <= 0x5FFF) {
+      m_mbc5_ram_bank = static_cast<u8>(value & 0x0F);
+      return;
+    }
+
+    // 0x6000-0x7FFF is unused on MBC5
+    return;
+  }
+
   if (!m_is_mbc1)
     return;
 
@@ -169,8 +202,13 @@ u8 Bus::read_cartridge_ram(u16 addr) const {
     return 0xFF;
   }
 
-  const std::size_t ram_bank =
-      m_banking_mode ? static_cast<std::size_t>(m_bank_high2) : 0;
+  std::size_t ram_bank = 0;
+
+  if (m_is_mbc5) {
+    ram_bank = static_cast<std::size_t>(m_mbc5_ram_bank);
+  } else if (m_is_mbc1) {
+    ram_bank = m_banking_mode ? static_cast<std::size_t>(m_bank_high2) : 0;
+  }
 
   const std::size_t offset = static_cast<std::size_t>(addr - 0xA000);
 
@@ -185,8 +223,13 @@ void Bus::write_cartridge_ram(u16 addr, u8 value) {
     return;
   }
 
-  const std::size_t ram_bank =
-      m_banking_mode ? static_cast<std::size_t>(m_bank_high2) : 0;
+  std::size_t ram_bank = 0;
+
+  if (m_is_mbc5) {
+    ram_bank = static_cast<std::size_t>(m_mbc5_ram_bank);
+  } else if (m_is_mbc1) {
+    ram_bank = m_banking_mode ? static_cast<std::size_t>(m_bank_high2) : 0;
+  }
 
   const std::size_t offset = static_cast<std::size_t>(addr - 0xA000);
 

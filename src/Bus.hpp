@@ -139,4 +139,10 @@ private:
   [[nodiscard]] bool has_valid_header_checksum(std::size_t base) const;
 
   [[nodiscard]] bool detect_mbc1_multicart() const;
+
+  // MBC5
+  bool m_is_mbc5{false};
+
+  u16 m_mbc5_rom_bank{1};
+  u8 m_mbc5_ram_bank{0};
 };
