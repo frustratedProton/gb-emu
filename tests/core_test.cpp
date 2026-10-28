@@ -1668,6 +1668,41 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   }
 
   std::filesystem::remove(save_path);
+
+  {
+    constexpr std::size_t bank_size = 0x4000;
+    constexpr std::size_t bank_count = 512;
+
+    std::vector<u8> mbc5_rom(bank_size * bank_count, 0x00);
+
+    for (std::size_t bank = 0; bank < bank_count; ++bank) {
+      mbc5_rom[bank * bank_size] = static_cast<u8>(bank);
+    }
+
+    mbc5_rom[0x0147] = 0x1B; // MBC5 + RAM + battery
+    mbc5_rom[0x0149] = 0x03; // 32 KiB RAM
+
+    Bus mbc5_bus{mbc5_rom};
+
+    assert(mbc5_bus.read(0x0000) == 0);
+    assert(mbc5_bus.read(0x4000) == 1);
+
+    // MBC5 permits bank 0 in the switchable region.
+    mbc5_bus.write(0x2000, 0x00);
+    mbc5_bus.write(0x3000, 0x00);
+    assert(mbc5_bus.read(0x4000) == 0);
+
+    // Select bank 2.
+    mbc5_bus.write(0x2000, 0x02);
+    assert(mbc5_bus.read(0x4000) == 2);
+
+    // Test the ninth ROM bank bit.
+    mbc5_bus.write(0x2000, 0x01);
+    mbc5_bus.write(0x3000, 0x01);
+
+    // Bank number is 0x101.
+    assert(mbc5_bus.read(0x4000) == static_cast<u8>(0x101));
+  }
 }
 
 std::vector<u8> create_test_rom() {

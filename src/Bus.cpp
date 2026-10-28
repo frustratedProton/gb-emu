@@ -102,9 +102,10 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
   if (m_rom.empty())
     return 0xFF;
 
-  if (!m_is_mbc1)
+  if (!m_is_mbc1 && !m_is_mbc5) {
     return static_cast<std::size_t>(addr) < m_rom.size() ? m_rom.at(addr)
                                                          : 0xFF;
+  }
 
   const std::size_t rom_bank_count = (m_rom.size() + 0x3FFF) / 0x4000;
 
@@ -198,7 +199,7 @@ void Bus::write_cartridge_control(u16 addr, u8 value) {
 }
 
 u8 Bus::read_cartridge_ram(u16 addr) const {
-  if (!m_is_mbc1 || !m_ram_enabled || m_external_ram.empty()) {
+  if ((!m_is_mbc1 && !m_is_mbc5) || !m_ram_enabled || m_external_ram.empty()) {
     return 0xFF;
   }
 
@@ -219,7 +220,7 @@ u8 Bus::read_cartridge_ram(u16 addr) const {
 }
 
 void Bus::write_cartridge_ram(u16 addr, u8 value) {
-  if (!m_is_mbc1 || !m_ram_enabled || m_external_ram.empty()) {
+  if ((!m_is_mbc1 && !m_is_mbc5) || !m_ram_enabled || m_external_ram.empty()) {
     return;
   }
 
