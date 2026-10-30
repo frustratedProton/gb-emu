@@ -145,4 +145,11 @@ private:
 
   u16 m_mbc5_rom_bank{1};
   u8 m_mbc5_ram_bank{0};
+
+  // MBC3
+  bool m_is_mbc3{false};
+  bool m_mbc3_has_rtc{false};
+
+  u8 m_mbc3_rom_bank{1};
+  u8 m_mbc3_ram_rtc_select{0};
 };

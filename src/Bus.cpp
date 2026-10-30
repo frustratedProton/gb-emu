@@ -64,11 +64,18 @@ void Bus::init_cartrigde() {
 
   m_is_mbc5 = cartridge_type >= 0x19 && cartridge_type <= 0x1E;
 
+  m_is_mbc3 = cartridge_type >= 0x0F && cartridge_type <= 0x13;
+
+  m_mbc3_has_rtc = cartridge_type == 0x0F || cartridge_type == 0x10;
+
   m_has_battery = cartridge_type == 0x03 || // MBC1 + RAM + battery
+                  cartridge_type == 0x0F || // MBC3 + timer + battery
+                  cartridge_type == 0x10 || // MBC3 + timer + RAM + battery
+                  cartridge_type == 0x13 || // MBC3 + RAM + battery
                   cartridge_type == 0x1B || // MBC5 + RAM + battery
                   cartridge_type == 0x1E;   // MBC5 + rumble + RAM + battery
 
-  if ((!m_is_mbc1 && !m_is_mbc5) || m_rom.size() <= 0x0149) {
+  if ((!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) || m_rom.size() <= 0x0149) {
     return;
   }
 
@@ -102,7 +109,7 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
   if (m_rom.empty())
     return 0xFF;
 
-  if (!m_is_mbc1 && !m_is_mbc5) {
+  if (!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) {
     return static_cast<std::size_t>(addr) < m_rom.size() ? m_rom.at(addr)
                                                          : 0xFF;
   }
@@ -114,7 +121,9 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
 
   std::size_t bank = 0;
 
-  if (m_is_mbc5) {
+  if (m_is_mbc3) {
+    bank = addr < 0x4000 ? 0 : static_cast<std::size_t>(m_mbc3_rom_bank);
+  } else if (m_is_mbc5) {
     bank = addr < 0x4000 ? 0 : static_cast<std::size_t>(m_mbc5_rom_bank);
   } else if (m_mbc1_multicart) {
     if (addr < 0x4000) {
@@ -142,6 +151,36 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
 }
 
 void Bus::write_cartridge_control(u16 addr, u8 value) {
+  if (m_is_mbc3) {
+    if (addr <= 0x1FFF) {
+      // RAM enable
+      m_ram_enabled = (value & 0x0F) == 0x0A;
+      return;
+    }
+
+    if (addr <= 0x3FFF) {
+      // MBC3 uses seven ROM bank bits
+      m_mbc3_rom_bank = static_cast<u8>(value & 0x7F);
+
+      // Bank zero maps to bank one
+      if (m_mbc3_rom_bank == 0) {
+        m_mbc3_rom_bank = 1;
+      }
+
+      return;
+    }
+
+    if (addr <= 0x5FFF) {
+      // 0x00-0x03 select RAM banks
+      // 0x08-0x0C will select RTC registers later
+      m_mbc3_ram_rtc_select = static_cast<u8>(value & 0x0F);
+      return;
+    }
+
+    // 0x6000-0x7FFF is the RTC latch area
+    return;
+  }
+
   if (m_is_mbc5) {
     if (addr <= 0x1FFF) {
       m_ram_enabled = (value & 0x0F) == 0x0A;
@@ -187,10 +226,6 @@ void Bus::write_cartridge_control(u16 addr, u8 value) {
   }
 
   if (addr <= 0x5FFF) {
-    // upper two ROM bank bits,
-    // or RAM bank number
-    // when in RAM bank mode
-
     m_bank_high2 = static_cast<u8>(value & 0x03);
     return;
   }
@@ -199,13 +234,20 @@ void Bus::write_cartridge_control(u16 addr, u8 value) {
 }
 
 u8 Bus::read_cartridge_ram(u16 addr) const {
-  if ((!m_is_mbc1 && !m_is_mbc5) || !m_ram_enabled || m_external_ram.empty()) {
+  if ((!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) || !m_ram_enabled ||
+      m_external_ram.empty()) {
     return 0xFF;
   }
 
   std::size_t ram_bank = 0;
 
-  if (m_is_mbc5) {
+  if (m_is_mbc3) {
+    if (m_mbc3_ram_rtc_select > 0x03) {
+      return 0xFF;
+    }
+
+    ram_bank = static_cast<std::size_t>(m_mbc3_ram_rtc_select);
+  } else if (m_is_mbc5) {
     ram_bank = static_cast<std::size_t>(m_mbc5_ram_bank);
   } else if (m_is_mbc1) {
     ram_bank = m_banking_mode ? static_cast<std::size_t>(m_bank_high2) : 0;
@@ -220,13 +262,20 @@ u8 Bus::read_cartridge_ram(u16 addr) const {
 }
 
 void Bus::write_cartridge_ram(u16 addr, u8 value) {
-  if ((!m_is_mbc1 && !m_is_mbc5) || !m_ram_enabled || m_external_ram.empty()) {
+  if ((!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) || !m_ram_enabled ||
+      m_external_ram.empty()) {
     return;
   }
 
   std::size_t ram_bank = 0;
 
-  if (m_is_mbc5) {
+  if (m_is_mbc3) {
+    if (m_mbc3_ram_rtc_select > 0x03) {
+      return;
+    }
+
+    ram_bank = static_cast<std::size_t>(m_mbc3_ram_rtc_select);
+  } else if (m_is_mbc5) {
     ram_bank = static_cast<std::size_t>(m_mbc5_ram_bank);
   } else if (m_is_mbc1) {
     ram_bank = m_banking_mode ? static_cast<std::size_t>(m_bank_high2) : 0;
@@ -256,14 +305,14 @@ bool Bus::has_valid_header_checksum(std::size_t base) const {
 }
 
 bool Bus::detect_mbc1_multicart() const {
-  // MBC1M multicarts are 1 MiB MBC1 cartridges.
+  // MBC1M multicarts are 1 MiB MBC1 cartridges
   if (!m_is_mbc1 || m_rom.size() != 0x100000) {
     return false;
   }
 
   int valid_slots = 0;
 
-  // Check the 256 KiB game slots after the menu.
+  // Check the 256 KiB game slots after the menu
   for (std::size_t slot = 1; slot <= 3; ++slot) {
     const std::size_t base = slot * 0x40000;
 

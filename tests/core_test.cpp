@@ -1713,6 +1713,55 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
     std::filesystem::remove(save_path);
   }
+
+  {
+    constexpr std::size_t bank_size = 0x4000;
+    constexpr std::size_t bank_count = 128;
+
+    std::vector<u8> mbc3_rom(bank_size * bank_count, 0x00);
+
+    for (std::size_t bank = 0; bank < bank_count; ++bank) {
+      mbc3_rom[bank * bank_size] = static_cast<u8>(bank);
+    }
+
+    mbc3_rom[0x0147] = 0x13; // MBC3 + RAM + battery
+    mbc3_rom[0x0149] = 0x03; // 32 KiB RAM
+
+    Bus mbc3_bus{mbc3_rom};
+
+    assert(mbc3_bus.read(0x0000) == 0);
+    assert(mbc3_bus.read(0x4000) == 1);
+
+    // MBC3 bank zero maps to bank one.
+    mbc3_bus.write(0x2000, 0x00);
+    assert(mbc3_bus.read(0x4000) == 1);
+
+    // Select ROM bank 2.
+    mbc3_bus.write(0x2000, 0x02);
+    assert(mbc3_bus.read(0x4000) == 2);
+
+    // Enable RAM.
+    mbc3_bus.write(0x0000, 0x0A);
+
+    // RAM bank 1.
+    mbc3_bus.write(0x4000, 0x01);
+    mbc3_bus.write(0xA000, 0x11);
+
+    // RAM bank 2.
+    mbc3_bus.write(0x4000, 0x02);
+    mbc3_bus.write(0xA000, 0x22);
+
+    // Verify RAM banks.
+    mbc3_bus.write(0x4000, 0x01);
+    assert(mbc3_bus.read(0xA000) == 0x11);
+
+    mbc3_bus.write(0x4000, 0x02);
+    assert(mbc3_bus.read(0xA000) == 0x22);
+
+    // RTC selection is not implemented yet and should not access RAM.
+    mbc3_bus.write(0x4000, 0x08);
+    assert(mbc3_bus.read(0xA000) == 0xFF);
+  }
 }
 
 std::vector<u8> create_test_rom() {
