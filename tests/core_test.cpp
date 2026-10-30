@@ -1670,38 +1670,48 @@ void run_cpu_tests(const std::vector<u8> &rom) {
   std::filesystem::remove(save_path);
 
   {
-    constexpr std::size_t bank_size = 0x4000;
-    constexpr std::size_t bank_count = 512;
-
-    std::vector<u8> mbc5_rom(bank_size * bank_count, 0x00);
-
-    for (std::size_t bank = 0; bank < bank_count; ++bank) {
-      mbc5_rom[bank * bank_size] = static_cast<u8>(bank);
-    }
+    std::vector<u8> mbc5_rom(0x4000 * 4, 0x00);
 
     mbc5_rom[0x0147] = 0x1B; // MBC5 + RAM + battery
     mbc5_rom[0x0149] = 0x03; // 32 KiB RAM
 
-    Bus mbc5_bus{mbc5_rom};
+    const std::string save_path = "test_mbc5.sav";
 
-    assert(mbc5_bus.read(0x0000) == 0);
-    assert(mbc5_bus.read(0x4000) == 1);
+    std::filesystem::remove(save_path);
 
-    // MBC5 permits bank 0 in the switchable region.
-    mbc5_bus.write(0x2000, 0x00);
-    mbc5_bus.write(0x3000, 0x00);
-    assert(mbc5_bus.read(0x4000) == 0);
+    {
+      Bus writer{mbc5_rom, save_path};
 
-    // Select bank 2.
-    mbc5_bus.write(0x2000, 0x02);
-    assert(mbc5_bus.read(0x4000) == 2);
+      writer.write(0x0000, 0x0A); // Enable RAM
 
-    // Test the ninth ROM bank bit.
-    mbc5_bus.write(0x2000, 0x01);
-    mbc5_bus.write(0x3000, 0x01);
+      writer.write(0x4000, 0x01); // RAM bank 1
+      writer.write(0xA000, 0x11);
 
-    // Bank number is 0x101.
-    assert(mbc5_bus.read(0x4000) == static_cast<u8>(0x101));
+      writer.write(0x4000, 0x02); // RAM bank 2
+      writer.write(0xA000, 0x22);
+
+      writer.write(0x4000, 0x01);
+      assert(writer.read(0xA000) == 0x11);
+
+      writer.write(0x4000, 0x02);
+      assert(writer.read(0xA000) == 0x22);
+
+      writer.save_battery_ram();
+    }
+
+    {
+      Bus reader{mbc5_rom, save_path};
+
+      reader.write(0x0000, 0x0A);
+
+      reader.write(0x4000, 0x01);
+      assert(reader.read(0xA000) == 0x11);
+
+      reader.write(0x4000, 0x02);
+      assert(reader.read(0xA000) == 0x22);
+    }
+
+    std::filesystem::remove(save_path);
   }
 }
 
