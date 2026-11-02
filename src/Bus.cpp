@@ -96,6 +96,12 @@ void Bus::init_cartrigde() {
   case 0x03:
     ram_bytes = 0x8000;
     break;
+  case 0x04:
+    ram_bytes = 0x20000; // 128 KiB
+    break;
+  case 0x05:
+    ram_bytes = 0x10000; // 64 KiB
+    break;
   default:
     ram_bytes = 0;
     break;
@@ -178,6 +184,22 @@ void Bus::write_cartridge_control(u16 addr, u8 value) {
     }
 
     // 0x6000-0x7FFF is the RTC latch area
+    if (m_mbc3_has_rtc && addr >= 0x6000 && addr <= 0x7FFF) {
+      if (value == 0x00) {
+        m_mbc3_latch_armed = true;
+      } else if (value == 0x01) {
+        if (m_mbc3_latch_armed) {
+          m_mbc3_rtc_latched = m_mbc3_rtc;
+        }
+
+        m_mbc3_latch_armed = false;
+      } else {
+        m_mbc3_latch_armed = false;
+      }
+
+      return;
+    }
+
     return;
   }
 
@@ -234,8 +256,24 @@ void Bus::write_cartridge_control(u16 addr, u8 value) {
 }
 
 u8 Bus::read_cartridge_ram(u16 addr) const {
-  if ((!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) || !m_ram_enabled ||
-      m_external_ram.empty()) {
+  if ((!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) || !m_ram_enabled) {
+    return 0xFF;
+  }
+
+  if (m_is_mbc3 && m_mbc3_ram_rtc_select >= 0x08 &&
+      m_mbc3_ram_rtc_select <= 0x0C) {
+    if (!m_mbc3_has_rtc) {
+      return 0xFF;
+    }
+
+    return read_mbc3_rtc();
+  }
+
+  if (m_is_mbc3 && m_mbc3_ram_rtc_select > 0x03) {
+    return 0xFF;
+  }
+
+  if (m_external_ram.empty()) {
     return 0xFF;
   }
 
@@ -262,8 +300,24 @@ u8 Bus::read_cartridge_ram(u16 addr) const {
 }
 
 void Bus::write_cartridge_ram(u16 addr, u8 value) {
-  if ((!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) || !m_ram_enabled ||
-      m_external_ram.empty()) {
+  if ((!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) || !m_ram_enabled) {
+    return;
+  }
+
+  if (m_is_mbc3 && m_mbc3_ram_rtc_select >= 0x08 &&
+      m_mbc3_ram_rtc_select <= 0x0C) {
+    if (m_mbc3_has_rtc) {
+      write_mbc3_rtc(value);
+    }
+
+    return;
+  }
+
+  if (m_is_mbc3 && m_mbc3_ram_rtc_select > 0x03) {
+    return;
+  }
+
+  if (m_external_ram.empty()) {
     return;
   }
 
@@ -384,6 +438,28 @@ u8 Bus::read(u16 addr) const {
 
   // The only remaining u16 address is 0xFFFF
   return m_ie;
+}
+
+u8 Bus::read_mbc3_rtc() const {
+  switch (m_mbc3_ram_rtc_select) {
+  case 0x08:
+    return m_mbc3_rtc_latched.seconds;
+
+  case 0x09:
+    return m_mbc3_rtc_latched.minutes;
+
+  case 0x0A:
+    return m_mbc3_rtc_latched.hours;
+
+  case 0x0B:
+    return m_mbc3_rtc_latched.day_low;
+
+  case 0x0C:
+    return static_cast<u8>(m_mbc3_rtc_latched.day_high & 0xC1);
+
+  default:
+    return 0xFF;
+  }
 }
 
 void Bus::cpu_write(u16 addr, u8 value) {
@@ -569,13 +645,34 @@ void Bus::write(u16 addr, u8 value) {
   m_ie = value;
 }
 
-// void Bus::set_joypad_state(u8 directions, u8 buttons) {
-//   // Active-low
-//   // 1 -> released
-//   // 0 -> pressed
-//   m_joypad_directions = directions & 0x0F;
-//   m_joypad_buttons = buttons & 0x0F;
-// }
+void Bus::write_mbc3_rtc(u8 value) {
+  switch (m_mbc3_ram_rtc_select) {
+  case 0x08:
+    m_mbc3_rtc.seconds = static_cast<u8>(value % 60);
+    break;
+
+  case 0x09:
+    m_mbc3_rtc.minutes = static_cast<u8>(value % 60);
+    break;
+
+  case 0x0A:
+    m_mbc3_rtc.hours = static_cast<u8>(value % 24);
+    break;
+
+  case 0x0B:
+    m_mbc3_rtc.day_low = value;
+    break;
+
+  case 0x0C:
+    m_mbc3_rtc.day_high = static_cast<u8>(value & 0xC1);
+    break;
+
+  default:
+    return;
+  }
+
+  m_ram_dirty = true;
+}
 
 u8 Bus::joypad_input() const {
   const u8 select = m_io[0x00] & 0x30;

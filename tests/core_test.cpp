@@ -1762,6 +1762,35 @@ void run_cpu_tests(const std::vector<u8> &rom) {
     mbc3_bus.write(0x4000, 0x08);
     assert(mbc3_bus.read(0xA000) == 0xFF);
   }
+
+  {
+    std::vector<u8> rtc_rom(0x8000, 0x00);
+
+    rtc_rom[0x0147] = 0x10; // MBC3 + timer + RAM + battery
+    rtc_rom[0x0149] = 0x03; // 32 KiB RAM
+
+    Bus rtc_bus{rtc_rom};
+
+    rtc_bus.write(0x0000, 0x0A); // Enable RAM/RTC
+    rtc_bus.write(0x4000, 0x08); // Select RTC seconds
+    rtc_bus.write(0xA000, 30);   // Set live seconds
+
+    // Latch live -> latched.
+    rtc_bus.write(0x6000, 0x00);
+    rtc_bus.write(0x6000, 0x01);
+
+    assert(rtc_bus.read(0xA000) == 30);
+
+    // Change live seconds. Latched value must remain unchanged.
+    rtc_bus.write(0xA000, 42);
+    assert(rtc_bus.read(0xA000) == 30);
+
+    // Latch again.
+    rtc_bus.write(0x6000, 0x00);
+    rtc_bus.write(0x6000, 0x01);
+
+    assert(rtc_bus.read(0xA000) == 42);
+  }
 }
 
 std::vector<u8> create_test_rom() {

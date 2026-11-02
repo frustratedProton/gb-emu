@@ -152,4 +152,20 @@ private:
 
   u8 m_mbc3_rom_bank{1};
   u8 m_mbc3_ram_rtc_select{0};
+
+  struct Mbc3RtcRegisters {
+    u8 seconds{};
+    u8 minutes{};
+    u8 hours{};
+    u8 day_low{};
+    u8 day_high{}; // bit 0 = day bit 8, bit 6 = halt, bit 7 = carry
+  };
+
+  Mbc3RtcRegisters m_mbc3_rtc{};
+  Mbc3RtcRegisters m_mbc3_rtc_latched{};
+
+  bool m_mbc3_latch_armed{false};
+
+  [[nodiscard]] u8 read_mbc3_rtc() const;
+  void write_mbc3_rtc(u8 value);
 };
