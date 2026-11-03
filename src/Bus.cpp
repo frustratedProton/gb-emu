@@ -724,6 +724,63 @@ void Bus::complete_tima_reload() {
   m_tima_reload_delay = 0;
 }
 
+void Bus::tick_mbc3_rtc(u32 cycles) {
+  if (!m_mbc3_has_rtc) {
+    return;
+  }
+
+  // RTC halt flag: bit 6 of RTC DH
+  if ((m_mbc3_rtc.day_high & 0x40) != 0) {
+    return;
+  }
+
+  constexpr u64 cycles_per_second = 4'194'304;
+
+  m_mbc3_rtc_cycles += cycles;
+
+  while (m_mbc3_rtc_cycles >= cycles_per_second) {
+    m_mbc3_rtc_cycles -= cycles_per_second;
+
+    ++m_mbc3_rtc.seconds;
+
+    if (m_mbc3_rtc.seconds < 60) {
+      continue;
+    }
+
+    m_mbc3_rtc.seconds = 0;
+    ++m_mbc3_rtc.minutes;
+
+    if (m_mbc3_rtc.minutes < 60) {
+      continue;
+    }
+
+    m_mbc3_rtc.minutes = 0;
+    ++m_mbc3_rtc.hours;
+
+    if (m_mbc3_rtc.hours < 24) {
+      continue;
+    }
+
+    m_mbc3_rtc.hours = 0;
+
+    u16 day = static_cast<u16>(m_mbc3_rtc.day_low |
+                               ((m_mbc3_rtc.day_high & 0x01) << 8));
+
+    if (day == 511) {
+      day = 0;
+
+      m_mbc3_rtc.day_high |= 0x80;
+    } else {
+      ++day;
+    }
+
+    m_mbc3_rtc.day_low = static_cast<u8>(day & 0xFF);
+
+    m_mbc3_rtc.day_high =
+        static_cast<u8>((m_mbc3_rtc.day_high & 0xC0) | ((day >> 8) & 0x01));
+  }
+}
+
 void Bus::tick(u32 cycles) {
   // The CPU access for the previous Reload phase happened immediately
   // before this call. Close that phase now.
@@ -757,6 +814,8 @@ void Bus::tick(u32 cycles) {
       increment_tima();
     }
   }
+
+  tick_mbc3_rtc(cycles);
 }
 
 void Bus::increment_tima() {

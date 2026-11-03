@@ -1790,6 +1790,26 @@ void run_cpu_tests(const std::vector<u8> &rom) {
     rtc_bus.write(0x6000, 0x01);
 
     assert(rtc_bus.read(0xA000) == 42);
+
+    rtc_bus.write(0x0000, 0x0A); // Enable RTC
+    rtc_bus.write(0x4000, 0x08); // Select seconds
+    rtc_bus.write(0xA000, 59);
+
+    rtc_bus.write(0x4000, 0x09); // Select minutes
+    rtc_bus.write(0xA000, 12);
+
+    // Advance exactly one RTC second.
+    rtc_bus.tick(4'194'304);
+
+    // Latch live RTC registers.
+    rtc_bus.write(0x6000, 0x00);
+    rtc_bus.write(0x6000, 0x01);
+
+    rtc_bus.write(0x4000, 0x08);
+    assert(rtc_bus.read(0xA000) == 0);
+
+    rtc_bus.write(0x4000, 0x09);
+    assert(rtc_bus.read(0xA000) == 13);
   }
 }
 

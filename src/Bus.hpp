@@ -168,4 +168,7 @@ private:
 
   [[nodiscard]] u8 read_mbc3_rtc() const;
   void write_mbc3_rtc(u8 value);
+
+  u64 m_mbc3_rtc_cycles{};
+  void tick_mbc3_rtc(u32 cycles);
 };
