@@ -1,8 +1,49 @@
 #include "Bus.hpp"
 #include "types.hpp"
+#include <chrono>
 #include <cstddef>
 #include <fstream>
 #include <iostream>
+
+namespace {
+u64 current_unix_time() {
+  using namespace std::chrono;
+  return static_cast<u64>(
+      duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+}
+
+void write_le32(std::array<u8, 48> &data, std::size_t offset, u32 value) {
+  for (int i = 0; i < 4; ++i) {
+    data[offset + i] = static_cast<u8>((value >> (i * 8)) & 0xFF);
+  }
+}
+
+u32 read_le32(const std::array<u8, 48> &data, std::size_t offset) {
+  u32 value = 0;
+
+  for (int i = 0; i < 4; ++i) {
+    value |= static_cast<u32>(data[offset + i]) << (i * 8);
+  }
+
+  return value;
+}
+
+void write_le64(std::array<u8, 48> &data, std::size_t offset, u64 value) {
+  for (int i = 0; i < 8; ++i) {
+    data[offset + i] = static_cast<u8>((value >> (i * 8)) & 0xFF);
+  }
+}
+
+u64 read_le64(const std::array<u8, 48> &data, std::size_t offset) {
+  u64 value = 0;
+
+  for (int i = 0; i < 8; ++i) {
+    value |= static_cast<u64>(data[offset + i]) << (i * 8);
+  }
+
+  return value;
+}
+} // namespace
 
 u8 Bus::cpu_read(u16 addr) const {
   if (addr >= 0x8000 && addr <= 0x9FFF && !m_cpu_vram_accessible) {
@@ -17,7 +58,7 @@ u8 Bus::cpu_read(u16 addr) const {
 }
 
 void Bus::load_battery_ram() {
-  if (!m_has_battery || m_save_path.empty() || m_external_ram.empty()) {
+  if (!m_has_battery || m_save_path.empty()) {
     return;
   }
 
@@ -27,13 +68,59 @@ void Bus::load_battery_ram() {
     return;
   }
 
-  file.read(reinterpret_cast<char *>(m_external_ram.data()),
-            static_cast<std::streamsize>(m_external_ram.size()));
+  if (!m_external_ram.empty()) {
+    file.read(reinterpret_cast<char *>(m_external_ram.data()),
+              static_cast<std::streamsize>(m_external_ram.size()));
+  }
+
+  if (!m_mbc3_has_rtc) {
+    return;
+  }
+
+  std::array<u8, 48> footer{};
+
+  file.read(reinterpret_cast<char *>(footer.data()),
+            static_cast<std::streamsize>(footer.size()));
+
+  if (file.gcount() != static_cast<std::streamsize>(footer.size())) {
+    return;
+  }
+
+  m_mbc3_rtc.seconds = static_cast<u8>(read_le32(footer, 0) % 60);
+
+  m_mbc3_rtc.minutes = static_cast<u8>(read_le32(footer, 4) % 60);
+
+  m_mbc3_rtc.hours = static_cast<u8>(read_le32(footer, 8) % 24);
+
+  m_mbc3_rtc.day_low = static_cast<u8>(read_le32(footer, 12) & 0xFF);
+
+  m_mbc3_rtc.day_high = static_cast<u8>(read_le32(footer, 16) & 0xC1);
+
+  m_mbc3_rtc_latched.seconds = static_cast<u8>(read_le32(footer, 20) % 60);
+
+  m_mbc3_rtc_latched.minutes = static_cast<u8>(read_le32(footer, 24) % 60);
+
+  m_mbc3_rtc_latched.hours = static_cast<u8>(read_le32(footer, 28) % 24);
+
+  m_mbc3_rtc_latched.day_low = static_cast<u8>(read_le32(footer, 32) & 0xFF);
+
+  m_mbc3_rtc_latched.day_high = static_cast<u8>(read_le32(footer, 36) & 0xC1);
+
+  const u64 saved_time = read_le64(footer, 40);
+
+  const u64 now = current_unix_time();
+
+  if (saved_time != 0 && now > saved_time) {
+    advance_mbc3_rtc_seconds(now - saved_time);
+  }
+
+  m_mbc3_rtc_cycles = 0;
 }
 
 void Bus::save_battery_ram() {
-  if (!m_has_battery || !m_ram_dirty || m_save_path.empty() ||
-      m_external_ram.empty()) {
+  if (!m_has_battery || m_save_path.empty() ||
+      (!m_ram_dirty && !m_mbc3_rtc_dirty) ||
+      (m_external_ram.empty() && !m_mbc3_has_rtc)) {
     return;
   }
 
@@ -43,11 +130,43 @@ void Bus::save_battery_ram() {
     return;
   }
 
-  file.write(reinterpret_cast<const char *>(m_external_ram.data()),
-             static_cast<std::streamsize>(m_external_ram.size()));
+  if (!m_external_ram.empty()) {
+    file.write(reinterpret_cast<const char *>(m_external_ram.data()),
+               static_cast<std::streamsize>(m_external_ram.size()));
+  }
+
+  if (m_mbc3_has_rtc) {
+    std::array<u8, 48> footer{};
+
+    write_le32(footer, 0, m_mbc3_rtc.seconds);
+
+    write_le32(footer, 4, m_mbc3_rtc.minutes);
+
+    write_le32(footer, 8, m_mbc3_rtc.hours);
+
+    write_le32(footer, 12, m_mbc3_rtc.day_low);
+
+    write_le32(footer, 16, m_mbc3_rtc.day_high);
+
+    write_le32(footer, 20, m_mbc3_rtc_latched.seconds);
+
+    write_le32(footer, 24, m_mbc3_rtc_latched.minutes);
+
+    write_le32(footer, 28, m_mbc3_rtc_latched.hours);
+
+    write_le32(footer, 32, m_mbc3_rtc_latched.day_low);
+
+    write_le32(footer, 36, m_mbc3_rtc_latched.day_high);
+
+    write_le64(footer, 40, current_unix_time());
+
+    file.write(reinterpret_cast<const char *>(footer.data()),
+               static_cast<std::streamsize>(footer.size()));
+  }
 
   if (file) {
     m_ram_dirty = false;
+    m_mbc3_rtc_dirty = false;
   }
 }
 
@@ -671,7 +790,7 @@ void Bus::write_mbc3_rtc(u8 value) {
     return;
   }
 
-  m_ram_dirty = true;
+  m_mbc3_rtc_dirty = true;
 }
 
 u8 Bus::joypad_input() const {
@@ -724,12 +843,52 @@ void Bus::complete_tima_reload() {
   m_tima_reload_delay = 0;
 }
 
+void Bus::advance_mbc3_rtc_seconds(u64 seconds) {
+  if (!m_mbc3_has_rtc || seconds == 0 || (m_mbc3_rtc.day_high & 0x40) != 0) {
+    return;
+  }
+
+  const u16 current_day = static_cast<u16>(m_mbc3_rtc.day_low |
+                                           ((m_mbc3_rtc.day_high & 0x01) << 8));
+
+  const u64 current_seconds = static_cast<u64>(current_day) * 86400ULL +
+                              static_cast<u64>(m_mbc3_rtc.hours) * 3600ULL +
+                              static_cast<u64>(m_mbc3_rtc.minutes) * 60ULL +
+                              m_mbc3_rtc.seconds;
+
+  const u64 total_seconds = current_seconds + seconds;
+
+  const u64 elapsed_days = total_seconds / 86400ULL;
+
+  const u64 day_seconds = total_seconds % 86400ULL;
+
+  const u16 new_day = static_cast<u16>(elapsed_days % 512);
+
+  const bool carry_was_set = (m_mbc3_rtc.day_high & 0x80) != 0;
+
+  const bool day_carry = carry_was_set || elapsed_days >= 512;
+
+  m_mbc3_rtc.hours = static_cast<u8>(day_seconds / 3600ULL);
+
+  m_mbc3_rtc.minutes = static_cast<u8>((day_seconds % 3600ULL) / 60ULL);
+
+  m_mbc3_rtc.seconds = static_cast<u8>(day_seconds % 60ULL);
+
+  m_mbc3_rtc.day_low = static_cast<u8>(new_day & 0xFF);
+
+  m_mbc3_rtc.day_high =
+      static_cast<u8>(((new_day >> 8) & 0x01) | ((m_mbc3_rtc.day_high & 0x40)) |
+                      (day_carry ? 0x80 : 0x00));
+
+  m_mbc3_rtc_dirty = true;
+}
+
 void Bus::tick_mbc3_rtc(u32 cycles) {
   if (!m_mbc3_has_rtc) {
     return;
   }
 
-  // RTC halt flag: bit 6 of RTC DH
+  // RTC DH bit 6: halt flag
   if ((m_mbc3_rtc.day_high & 0x40) != 0) {
     return;
   }
@@ -738,46 +897,12 @@ void Bus::tick_mbc3_rtc(u32 cycles) {
 
   m_mbc3_rtc_cycles += cycles;
 
-  while (m_mbc3_rtc_cycles >= cycles_per_second) {
-    m_mbc3_rtc_cycles -= cycles_per_second;
+  const u64 elapsed_seconds = m_mbc3_rtc_cycles / cycles_per_second;
 
-    ++m_mbc3_rtc.seconds;
+  m_mbc3_rtc_cycles %= cycles_per_second;
 
-    if (m_mbc3_rtc.seconds < 60) {
-      continue;
-    }
-
-    m_mbc3_rtc.seconds = 0;
-    ++m_mbc3_rtc.minutes;
-
-    if (m_mbc3_rtc.minutes < 60) {
-      continue;
-    }
-
-    m_mbc3_rtc.minutes = 0;
-    ++m_mbc3_rtc.hours;
-
-    if (m_mbc3_rtc.hours < 24) {
-      continue;
-    }
-
-    m_mbc3_rtc.hours = 0;
-
-    u16 day = static_cast<u16>(m_mbc3_rtc.day_low |
-                               ((m_mbc3_rtc.day_high & 0x01) << 8));
-
-    if (day == 511) {
-      day = 0;
-
-      m_mbc3_rtc.day_high |= 0x80;
-    } else {
-      ++day;
-    }
-
-    m_mbc3_rtc.day_low = static_cast<u8>(day & 0xFF);
-
-    m_mbc3_rtc.day_high =
-        static_cast<u8>((m_mbc3_rtc.day_high & 0xC0) | ((day >> 8) & 0x01));
+  if (elapsed_seconds != 0) {
+    advance_mbc3_rtc_seconds(elapsed_seconds);
   }
 }
 

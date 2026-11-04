@@ -1810,6 +1810,65 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
     rtc_bus.write(0x4000, 0x09);
     assert(rtc_bus.read(0xA000) == 13);
+
+    // Set seconds to 10.
+    rtc_bus.write(0x4000, 0x08);
+    rtc_bus.write(0xA000, 10);
+
+    // Set the halt flag.
+    rtc_bus.write(0x4000, 0x0C);
+    rtc_bus.write(0xA000, 0x40);
+
+    // Advance one RTC second.
+    rtc_bus.tick(4'194'304);
+
+    // Latch.
+    rtc_bus.write(0x6000, 0x00);
+    rtc_bus.write(0x6000, 0x01);
+
+    // Seconds should not have advanced.
+    rtc_bus.write(0x4000, 0x08);
+    assert(rtc_bus.read(0xA000) == 10);
+
+    rtc_bus.write(0x4000, 0x0C);
+    rtc_bus.write(0xA000, 0x00);
+
+    rtc_bus.tick(4'194'304);
+
+    rtc_bus.write(0x6000, 0x00);
+    rtc_bus.write(0x6000, 0x01);
+
+    rtc_bus.write(0x4000, 0x08);
+    assert(rtc_bus.read(0xA000) == 11);
+
+    rtc_bus.write(0x4000, 0x08);
+    rtc_bus.write(0xA000, 59); // Seconds
+
+    rtc_bus.write(0x4000, 0x09);
+    rtc_bus.write(0xA000, 59); // Minutes
+
+    rtc_bus.write(0x4000, 0x0A);
+    rtc_bus.write(0xA000, 23); // Hours
+
+    rtc_bus.write(0x4000, 0x0B);
+    rtc_bus.write(0xA000, 0xFF); // Day low
+
+    rtc_bus.write(0x4000, 0x0C);
+    rtc_bus.write(0xA000, 0x01); // Day bit 8
+
+    rtc_bus.tick(4'194'304);
+
+    rtc_bus.write(0x6000, 0x00);
+    rtc_bus.write(0x6000, 0x01);
+
+    rtc_bus.write(0x4000, 0x0B);
+    assert(rtc_bus.read(0xA000) == 0x00);
+
+    rtc_bus.write(0x4000, 0x0C);
+    const u8 day_high = rtc_bus.read(0xA000);
+
+    assert((day_high & 0x01) == 0); // Day counter wrapped
+    assert((day_high & 0x80) != 0); // Carry flag set
   }
 }
 

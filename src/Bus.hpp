@@ -171,4 +171,8 @@ private:
 
   u64 m_mbc3_rtc_cycles{};
   void tick_mbc3_rtc(u32 cycles);
+
+  bool m_mbc3_rtc_dirty{false};
+
+  void advance_mbc3_rtc_seconds(u64 seconds);
 };
