@@ -1873,9 +1873,32 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
   {
 
-    std::vector<u8> mbc2_rom(0x8000, 0x00);
-    mbc2_rom[0x0147] = 0x06; // MBC2 + battery
+    constexpr std::size_t bank_size = 0x4000;
+    constexpr std::size_t bank_count = 16;
+
+    std::vector<u8> mbc2_rom(bank_size * bank_count, 0x00);
+
+    for (std::size_t bank = 0; bank < bank_count; ++bank) {
+      mbc2_rom[bank * bank_size] = static_cast<u8>(bank);
+    }
+
+    mbc2_rom[0x0147] = 0x05; // MBC2
+
     Bus mbc2_bus{mbc2_rom};
+
+    assert(mbc2_bus.read(0x0000) == 0);
+    assert(mbc2_bus.read(0x4000) == 1);
+
+    // A8 = 1 selects the ROM-bank register.
+    mbc2_bus.write(0x2100, 0x02);
+    assert(mbc2_bus.read(0x4000) == 2);
+
+    // Bank zero maps to bank one.
+    mbc2_bus.write(0x2100, 0x00);
+    assert(mbc2_bus.read(0x4000) == 1);
+
+    // A8 = 0 selects the RAM-enable register.
+    mbc2_bus.write(0x0000, 0x0A);
   }
 }
 

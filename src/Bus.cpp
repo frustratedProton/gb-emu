@@ -241,7 +241,7 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
   if (m_rom.empty())
     return 0xFF;
 
-  if (!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) {
+  if (!m_is_mbc1 && !m_is_mbc2 && !m_is_mbc3 && !m_is_mbc5) {
     return static_cast<std::size_t>(addr) < m_rom.size() ? m_rom.at(addr)
                                                          : 0xFF;
   }
@@ -253,7 +253,9 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
 
   std::size_t bank = 0;
 
-  if (m_is_mbc3) {
+  if (m_is_mbc2) {
+    bank = addr < 0x4000 ? 0 : static_cast<std::size_t>(m_mbc2_rom_bank);
+  } else if (m_is_mbc3) {
     bank = addr < 0x4000 ? 0 : static_cast<std::size_t>(m_mbc3_rom_bank);
   } else if (m_is_mbc5) {
     bank = addr < 0x4000 ? 0 : static_cast<std::size_t>(m_mbc5_rom_bank);
@@ -283,6 +285,22 @@ u8 Bus::read_cartridge_rom(u16 addr) const {
 }
 
 void Bus::write_cartridge_control(u16 addr, u8 value) {
+  if (m_is_mbc2) {
+    // MBC2 uses addr bit 8 to choose the register
+    if ((addr & 0x100) == 0) {
+      m_ram_enabled = (value & 0x0F) == 0x0A;
+    } else {
+      // 4bit ROM bank register
+      m_mbc2_rom_bank = static_cast<u8>(value & 0x0F);
+
+      if (m_mbc2_rom_bank == 0) {
+        m_mbc2_rom_bank = 1;
+      }
+    }
+
+    return;
+  }
+
   if (m_is_mbc3) {
     if (addr <= 0x1FFF) {
       // RAM enable
