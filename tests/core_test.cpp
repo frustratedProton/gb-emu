@@ -1870,6 +1870,13 @@ void run_cpu_tests(const std::vector<u8> &rom) {
     assert((day_high & 0x01) == 0); // Day counter wrapped
     assert((day_high & 0x80) != 0); // Carry flag set
   }
+
+  {
+
+    std::vector<u8> mbc2_rom(0x8000, 0x00);
+    mbc2_rom[0x0147] = 0x06; // MBC2 + battery
+    Bus mbc2_bus{mbc2_rom};
+  }
 }
 
 std::vector<u8> create_test_rom() {

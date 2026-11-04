@@ -175,4 +175,9 @@ private:
   bool m_mbc3_rtc_dirty{false};
 
   void advance_mbc3_rtc_seconds(u64 seconds);
+
+  // MBC2
+  bool m_is_mbc2{false};
+  u8 m_mbc2_rom_bank{1};
+  std::array<u8, 512> m_mbc2_ram{}; // mbc2 doesnt support external ram
 };

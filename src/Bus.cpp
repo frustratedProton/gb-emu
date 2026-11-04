@@ -185,14 +185,21 @@ void Bus::init_cartrigde() {
 
   m_is_mbc3 = cartridge_type >= 0x0F && cartridge_type <= 0x13;
 
+  m_is_mbc2 = cartridge_type == 0x05 || cartridge_type == 0x06;
+
   m_mbc3_has_rtc = cartridge_type == 0x0F || cartridge_type == 0x10;
 
   m_has_battery = cartridge_type == 0x03 || // MBC1 + RAM + battery
+                  cartridge_type == 0x06 || // MCB2 + battery
                   cartridge_type == 0x0F || // MBC3 + timer + battery
                   cartridge_type == 0x10 || // MBC3 + timer + RAM + battery
                   cartridge_type == 0x13 || // MBC3 + RAM + battery
                   cartridge_type == 0x1B || // MBC5 + RAM + battery
                   cartridge_type == 0x1E;   // MBC5 + rumble + RAM + battery
+
+  if (m_is_mbc2) {
+    return;
+  }
 
   if ((!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) || m_rom.size() <= 0x0149) {
     return;
