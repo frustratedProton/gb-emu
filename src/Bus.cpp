@@ -1,8 +1,10 @@
 #include "Bus.hpp"
 #include "types.hpp"
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <fstream>
+#include <ios>
 #include <iostream>
 
 namespace {
@@ -68,6 +70,22 @@ void Bus::load_battery_ram() {
     return;
   }
 
+  if (m_is_mbc2) {
+    std::array<u8, 512> buffer{};
+
+    file.read(reinterpret_cast<char *>(buffer.data()),
+              static_cast<std::streamsize>(buffer.size()));
+
+    const std::streamsize loaded = file.gcount();
+
+    for (std::streamsize i = 0; i < loaded; ++i) {
+      m_mbc2_ram[static_cast<std::size_t>(i)] =
+          static_cast<u8>(buffer[static_cast<std::size_t>(i)] & 0x0F);
+    }
+
+    return;
+  }
+
   if (!m_external_ram.empty()) {
     file.read(reinterpret_cast<char *>(m_external_ram.data()),
               static_cast<std::streamsize>(m_external_ram.size()));
@@ -120,13 +138,24 @@ void Bus::load_battery_ram() {
 void Bus::save_battery_ram() {
   if (!m_has_battery || m_save_path.empty() ||
       (!m_ram_dirty && !m_mbc3_rtc_dirty) ||
-      (m_external_ram.empty() && !m_mbc3_has_rtc)) {
+      (m_external_ram.empty() && !m_mbc3_has_rtc && !m_is_mbc2)) { // <- here
     return;
   }
 
   std::ofstream file(m_save_path, std::ios::binary | std::ios::trunc);
 
   if (!file) {
+    return;
+  }
+
+  if (m_is_mbc2) {
+    file.write(reinterpret_cast<const char *>(m_mbc2_ram.data()),
+               static_cast<std::streamsize>(m_mbc2_ram.size()));
+
+    if (file) {
+      m_ram_dirty = false;
+    }
+
     return;
   }
 
@@ -198,6 +227,7 @@ void Bus::init_cartrigde() {
                   cartridge_type == 0x1E;   // MBC5 + rumble + RAM + battery
 
   if (m_is_mbc2) {
+    load_battery_ram();
     return;
   }
 
@@ -400,8 +430,16 @@ void Bus::write_cartridge_control(u16 addr, u8 value) {
 }
 
 u8 Bus::read_cartridge_ram(u16 addr) const {
-  if ((!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) || !m_ram_enabled) {
+  if ((!m_is_mbc1 && !m_is_mbc2 && !m_is_mbc3 && !m_is_mbc5) ||
+      !m_ram_enabled) {
     return 0xFF;
+  }
+
+  if (m_is_mbc2) {
+    const std::size_t index =
+        static_cast<std::size_t>((addr - 0xA000) & 0x01FF);
+
+    return static_cast<u8>(0xF0 | (m_mbc2_ram.at(index) & 0x0F));
   }
 
   if (m_is_mbc3 && m_mbc3_ram_rtc_select >= 0x08 &&
@@ -444,7 +482,18 @@ u8 Bus::read_cartridge_ram(u16 addr) const {
 }
 
 void Bus::write_cartridge_ram(u16 addr, u8 value) {
-  if ((!m_is_mbc1 && !m_is_mbc3 && !m_is_mbc5) || !m_ram_enabled) {
+  if ((!m_is_mbc1 && !m_is_mbc2 && !m_is_mbc3 && !m_is_mbc5) ||
+      !m_ram_enabled) {
+    return;
+  }
+
+  if (m_is_mbc2) {
+    const std::size_t index =
+        static_cast<std::size_t>((addr - 0xA000) & 0x01FF);
+
+    m_mbc2_ram.at(index) = static_cast<u8>(value & 0x0F);
+
+    m_ram_dirty = true;
     return;
   }
 

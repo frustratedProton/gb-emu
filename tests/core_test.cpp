@@ -1889,6 +1889,9 @@ void run_cpu_tests(const std::vector<u8> &rom) {
     assert(mbc2_bus.read(0x0000) == 0);
     assert(mbc2_bus.read(0x4000) == 1);
 
+    assert(mbc2_bus.read(0x0000) == 0);
+    assert(mbc2_bus.read(0x4000) == 1);
+
     // A8 = 1 selects the ROM-bank register.
     mbc2_bus.write(0x2100, 0x02);
     assert(mbc2_bus.read(0x4000) == 2);
@@ -1897,8 +1900,35 @@ void run_cpu_tests(const std::vector<u8> &rom) {
     mbc2_bus.write(0x2100, 0x00);
     assert(mbc2_bus.read(0x4000) == 1);
 
-    // A8 = 0 selects the RAM-enable register.
+    // RAM starts disabled: reads are FF.
+    assert(mbc2_bus.read(0xA000) == 0xFF);
+
+    // Writes while disabled are ignored.
+    mbc2_bus.write(0xA000, 0x07);
+    assert(mbc2_bus.read(0xA000) == 0xFF);
+
+    // A8 = 0 selects RAM enable.
     mbc2_bus.write(0x0000, 0x0A);
+
+    // Only the low nibble is stored.
+    mbc2_bus.write(0xA000, 0xAB);
+    assert(mbc2_bus.read(0xA000) == 0xFB);
+
+    // Address mirroring.
+    mbc2_bus.write(0xA000, 0x05);
+    assert(mbc2_bus.read(0xA200) == 0xF5);
+
+    // Last internal RAM entry.
+    mbc2_bus.write(0xA1FF, 0x0C);
+    assert(mbc2_bus.read(0xA1FF) == 0xFC);
+    assert(mbc2_bus.read(0xA3FF) == 0xFC);
+
+    // Disable again: reads return FF,
+    // but contents survive underneath.
+    mbc2_bus.write(0x0000, 0x00);
+    assert(mbc2_bus.read(0xA000) == 0xFF);
+    mbc2_bus.write(0x0000, 0x0A);
+    assert(mbc2_bus.read(0xA000) == 0xF5);
   }
 }
 
