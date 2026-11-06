@@ -1,11 +1,15 @@
 #include "Bus.hpp"
+#include "Apu.hpp"
 #include "types.hpp"
+
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <fstream>
 #include <ios>
 #include <iostream>
+
+Apu m_apu{};
 
 namespace {
 u64 current_unix_time() {
@@ -609,6 +613,10 @@ u8 Bus::read(u16 addr) const {
 
   // I/O registers
   if (addr <= 0xFF7F) {
+    if (addr >= 0xFF10 && addr <= 0xFF3F) {
+      return m_apu.read_register(addr);
+    }
+
     if (addr == 0xFF41) {
       return static_cast<u8>(m_io[0x41] | 0x80);
     }
@@ -723,6 +731,11 @@ void Bus::write(u16 addr, u8 value) {
 
   // IO
   if (addr <= 0xFF7F) {
+    if (addr >= 0xFF10 && addr <= 0xFF3F) {
+      m_apu.write_register(addr, value);
+      return;
+    }
+
     if (addr == 0xFF05) {
       if (m_tima_reload_phase == TimaReloadPhase::Reload) {
         // TIMA writes are ignored during the reload M-cycle.
@@ -1015,6 +1028,7 @@ void Bus::tick(u32 cycles) {
   }
 
   tick_mbc3_rtc(cycles);
+  m_apu.tick(cycles);
 }
 
 void Bus::increment_tima() {

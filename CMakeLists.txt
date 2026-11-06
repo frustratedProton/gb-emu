@@ -11,6 +11,7 @@ add_library(gbcore
     src/Cpu.cpp
     src/rom.cpp
     src/Ppu.cpp
+    src/Apu.cpp
 )
 
 target_include_directories(gbcore PUBLIC

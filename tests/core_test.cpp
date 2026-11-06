@@ -1,3 +1,4 @@
+#include "../src/Apu.hpp"
 #include "../src/Bus.hpp"
 #include "../src/Cpu.hpp"
 #include "../src/rom.hpp"
@@ -1961,6 +1962,40 @@ void run_cpu_tests(const std::vector<u8> &rom) {
 
     assert(static_cast<u8>(halt_cpu.af() >> 8) ==
            static_cast<u8>(a_before + 1));
+  }
+
+  {
+    // Any ROM works; the APU doesn't care about the cartridge.
+    std::vector<u8> apu_rom(0x8000, 0x00);
+
+    Bus apu_bus{apu_rom};
+
+    // power on first
+    apu_bus.write(0xFF26, 0x80);
+
+    // NR10: bit 7 unused
+    apu_bus.write(0xFF10, 0x00);
+    assert(apu_bus.read(0xFF10) == 0x80);
+
+    // NR13: write-only
+    apu_bus.write(0xFF13, 0x12);
+    assert(apu_bus.read(0xFF13) == 0xFF);
+
+    // NR52: 0x70 always set, no channels active
+    assert(apu_bus.read(0xFF26) == 0xF0);
+
+    // unmapped region
+    assert(apu_bus.read(0xFF27) == 0xFF);
+
+    // wave RAM round-trips
+    apu_bus.write(0xFF30, 0x5A);
+    assert(apu_bus.read(0xFF30) == 0x5A);
+
+    // power off clears and locks registers
+    apu_bus.write(0xFF26, 0x00);
+    apu_bus.write(0xFF11, 0xFF);          // ignored
+    apu_bus.write(0xFF26, 0x80);          // power back on
+    assert(apu_bus.read(0xFF11) == 0x3F); // cleared value | mask
   }
 }
 
