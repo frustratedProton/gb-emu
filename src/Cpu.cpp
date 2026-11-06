@@ -18,6 +18,8 @@ void Cpu::reset_post_boot_dmg() {
   m_ime = false;
   m_halted = false;
   m_ime_pending = false;
+  m_halt_bug = false;
+  m_ei_delay = false;
 }
 
 void Cpu::advance_cycles(u32 cycles) {
@@ -251,7 +253,13 @@ void Cpu::sbc_a(u8 value) {
 
 u8 Cpu::fetch8() {
   const u8 value = timed_fetch(m_registers.pc);
-  m_registers.pc = static_cast<u16>(m_registers.pc + 1);
+
+  if (m_halt_bug) {
+    m_halt_bug = false; // PC not incremented
+  } else {
+    m_registers.pc = static_cast<u16>(m_registers.pc + 1);
+  }
+
   return value;
 }
 
@@ -1031,7 +1039,15 @@ u32 Cpu::execute_instruction() {
 
   // HALT
   case 0x76: {
-    m_halted = true;
+    const u8 pending =
+        static_cast<u8>(m_bus.read(0xFFFF) & m_bus.read(0xFF0F) & 0x1F);
+
+    if (m_ime || m_ei_delay || pending == 0) {
+      m_halted = true;
+    } else {
+      m_halt_bug = true;
+    }
+
     return 4;
   }
 
@@ -1286,6 +1302,7 @@ u32 Cpu::step() {
 
   // Consume the pending EI state
   m_ime_pending = false;
+  m_ei_delay = enable_after_instruction;
   if (!enable_after_instruction) {
     const u32 interrupt_cycles = handle_interrupts();
 

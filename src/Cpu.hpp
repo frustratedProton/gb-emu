@@ -116,4 +116,7 @@ private:
   u32 m_step_cycles{};
 
   ClockCallback m_clock;
+
+  bool m_halt_bug{false};
+  bool m_ei_delay{false};
 };

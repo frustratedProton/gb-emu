@@ -1930,6 +1930,38 @@ void run_cpu_tests(const std::vector<u8> &rom) {
     mbc2_bus.write(0x0000, 0x0A);
     assert(mbc2_bus.read(0xA000) == 0xF5);
   }
+
+  {
+    std::vector<u8> halt_rom(0x8000, 0x00);
+
+    halt_rom[0x0100] = 0x76; // halt
+    halt_rom[0x0101] = 0x3C; // inc a
+
+    Bus halt_bus{halt_rom};
+    Cpu halt_cpu{halt_bus};
+    halt_cpu.reset_post_boot_dmg();
+
+    // IE enabled but nothing pending.
+    halt_bus.write(0xFFFF, 0x01);
+
+    const u8 a_before = static_cast<u8>(halt_cpu.af() >> 8);
+
+    (void)halt_cpu.step(); // HALT: halts for real
+    (void)halt_cpu.step(); // still halted, 4-cycle tick
+    (void)halt_cpu.step(); // still halted
+
+    const u8 a_after = static_cast<u8>(halt_cpu.af() >> 8);
+
+    assert(a_after == a_before); // inc a never ran
+
+    // Now raise the interrupt: IME=0, so CPU wakes WITHOUT servicing.
+    halt_bus.write(0xFF0F, 0x01);
+
+    (void)halt_cpu.step(); // wakes, executes inc a (once)
+
+    assert(static_cast<u8>(halt_cpu.af() >> 8) ==
+           static_cast<u8>(a_before + 1));
+  }
 }
 
 std::vector<u8> create_test_rom() {
