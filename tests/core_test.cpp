@@ -1997,6 +1997,40 @@ void run_cpu_tests(const std::vector<u8> &rom) {
     apu_bus.write(0xFF26, 0x80);          // power back on
     assert(apu_bus.read(0xFF11) == 0x3F); // cleared value | mask
   }
+  {
+    {
+      std::vector<u8> apu_rom(0x8000, 0x00);
+      Bus apu_bus{apu_rom};
+
+      apu_bus.write(0xFF26, 0x80); // power on
+      apu_bus.write(0xFF17, 0xF0); // CH2 DAC on
+      apu_bus.write(0xFF16, 0x3E); // length = 64 - 62 = 2
+      apu_bus.write(0xFF19, 0xC0); // trigger + length enable
+
+      // CH2 shows active in NR52.
+      assert((apu_bus.read(0xFF26) & 0x02) != 0);
+
+      // 4 sequencer steps = 2 length clocks -> expires.
+      apu_bus.tick(8192 * 4);
+      assert((apu_bus.read(0xFF26) & 0x02) == 0);
+
+      // Without length enable the channel stays on.
+      apu_bus.write(0xFF16, 0x3E);
+      apu_bus.write(0xFF19, 0x80); // trigger only
+      apu_bus.tick(8192 * 16);
+      assert((apu_bus.read(0xFF26) & 0x02) != 0);
+
+      // DAC off kills it instantly.
+      apu_bus.write(0xFF17, 0x00);
+      assert((apu_bus.read(0xFF26) & 0x02) == 0);
+
+      // Noise channel: DAC on via NR42, trigger, status bit 3 set.
+      apu_bus.write(0xFF21, 0xF0); // NR42: DAC on
+      apu_bus.write(0xFF20, 0x3E); // NR41: length = 2
+      apu_bus.write(0xFF23, 0xC0); // NR44: trigger + length enable
+      assert((apu_bus.read(0xFF26) & 0x08) != 0);
+    }
+  }
 }
 
 std::vector<u8> create_test_rom() {
