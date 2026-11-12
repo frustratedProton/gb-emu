@@ -127,6 +127,13 @@ void Apu::write_register(u16 addr, u8 value) {
     break;
   }
 
+  case 0xFF10: {
+    if (m_sweep_negated && (value & 0x08) == 0) {
+      m_ch[0].enabled = false;
+    }
+    break;
+  }
+
   default:
     break;
   }
@@ -166,6 +173,23 @@ void Apu::write_nrx4(std::size_t ch, u8 value) {
     }
 
     m_ch[ch].enabled = dac_on(ch);
+
+    if (ch == 0) {
+      const u8 nr10 = m_regs[0x00];
+      const u8 period = static_cast<u8>((nr10 >> 4) & 0x07);
+      const u8 shift = nr10 & 0x07;
+
+      m_sweep_shadow = static_cast<u16>(m_regs[0x03] | ((value & 0x07) << 8));
+      m_sweep_timer = period != 0 ? period : 8;
+      m_sweep_enabled = period != 0 || shift != 0;
+      m_sweep_negated = false;
+
+      // Quirk (test 04): shift != 0 runs an immediate
+      // overflow check on trigger; shift == 0 does NOT.
+      if (shift != 0) {
+        static_cast<void>(sweep_calc());
+      }
+    }
   }
 }
 
@@ -184,6 +208,11 @@ void Apu::power_off() {
     ch.length_enabled = false;
     // length will survie power off
   }
+
+  m_sweep_enabled = 0;
+  m_sweep_timer = 0;
+  m_sweep_enabled = false;
+  m_sweep_negated = false;
 }
 
 void Apu::tick(u32 cycles) {
@@ -201,6 +230,10 @@ void Apu::tick(u32 cycles) {
     }
 
     // step 2, 6: sweep
+    if (m_fs_step == 2 || m_fs_step == 6) {
+      clock_sweep();
+    }
+
     // step 7: envelope
     m_fs_step = static_cast<u8>((m_fs_step + 1) & 7);
   }
@@ -228,5 +261,53 @@ bool Apu::dac_on(std::size_t ch) const {
     return (m_regs[0x0A] & 0x80) != 0; // NR30 (FF1A)
   default:
     return (m_regs[0x11] & 0xF8) != 0; // NR42 (FF21)
+  }
+}
+
+u16 Apu::sweep_calc() {
+  const u8 nr10 = m_regs[0x00];
+  const u8 shift = nr10 & 0x07;
+
+  u16 new_freq = m_sweep_shadow >> shift;
+
+  if ((nr10 & 0x08) != 0) {
+    m_sweep_negated = true;
+    new_freq = static_cast<u16>(m_sweep_shadow - new_freq);
+  } else {
+    new_freq = static_cast<u16>(m_sweep_shadow + new_freq);
+  }
+
+  if (new_freq > 2047) {
+    m_ch[0].enabled = false;
+  }
+
+  return new_freq;
+}
+
+void Apu::clock_sweep() {
+  if (m_sweep_timer > 0) {
+    --m_sweep_timer;
+  }
+
+  if (m_sweep_timer != 0) {
+    return;
+  }
+
+  const u8 period = static_cast<u8>((m_regs[0x00] >> 4) & 0x07);
+  m_sweep_timer = period != 0 ? period : 8;
+
+  if (!m_sweep_enabled || period == 0) {
+    return;
+  }
+
+  const u16 new_freq = sweep_calc();
+  const u8 shift = m_regs[0x00] & 0x07;
+
+  if (new_freq <= 2047 && shift != 0) {
+    m_sweep_shadow = new_freq;
+    m_regs[0x03] = static_cast<u8>(new_freq & 0xFF);
+    m_regs[0x04] =
+        static_cast<u8>((m_regs[0x04] & 0xF8) | ((new_freq >> 8) & 0x07));
+    static_cast<void>(sweep_calc());
   }
 }

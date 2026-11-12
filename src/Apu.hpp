@@ -28,4 +28,12 @@ private:
   bool dac_on(std::size_t ch) const;
   void clock_lengths();
   void write_nrx4(std::size_t ch, u8 value);
+
+  u16 m_sweep_shadow{0};
+  u8 m_sweep_timer{0};
+  bool m_sweep_enabled{false};
+  bool m_sweep_negated{false};
+
+  u16 sweep_calc();
+  void clock_sweep();
 };
