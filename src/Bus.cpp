@@ -1,5 +1,4 @@
 #include "Bus.hpp"
-#include "Apu.hpp"
 #include "types.hpp"
 
 #include <array>
@@ -8,8 +7,6 @@
 #include <fstream>
 #include <ios>
 #include <iostream>
-
-Apu m_apu{};
 
 namespace {
 u64 current_unix_time() {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Apu.hpp"
 #include "types.hpp"
 
 #include <array>
@@ -35,17 +36,12 @@ public:
   [[nodiscard]] u8 get_if() const { return m_io[0x0F]; }
   void set_if(u8 value) { m_io[0x0F] = value; }
 
+  const Apu &apu() const { return m_apu; }
+  Apu &apu_mut() { return m_apu; }
+  
   void tick(u32 cycles);
 
   void request_interrupt(u8 bit);
-
-  //   void set_joypad_state(u8 directions, u8 buttons) {
-  //     // Active-low
-  //     // 1 -> released
-  //     // 0 -> pressed
-  //     m_joypad_directions = directions & 0x0F;
-  //     m_joypad_buttons = buttons & 0x0F;
-  //   }
 
   void set_joypad_state(u8 directions, u8 buttons);
 
@@ -86,6 +82,8 @@ public:
   void save_battery_ram();
 
 private:
+  Apu m_apu{};
+
   const std::vector<u8> &m_rom;
   std::array<u8, 0x2000> m_vram{}; // video ram
   std::array<u8, 0x2000> m_wram{}; // work ram

@@ -2031,6 +2031,83 @@ void run_cpu_tests(const std::vector<u8> &rom) {
       assert((apu_bus.read(0xFF26) & 0x08) != 0);
     }
   }
+  {
+    std::vector<u8> apu_rom(0x8000, 0x00);
+    Bus b{apu_rom};
+
+    b.write(0xFF26, 0x80);
+    b.write(0xFF16, 0x80); // duty 10 (50%)
+    b.write(0xFF17, 0xF0); // vol 15, no envelope
+    b.write(0xFF18, 0x00); // freq 1792 -> period 1024 cycles
+    b.write(0xFF19, 0x87); // trigger, freq high = 7
+
+    // Over one full duty cycle (8 * 1024 cycles), a 50% duty
+    // must spend half the time at 15 and half at 0.
+    int high = 0;
+    for (int i = 0; i < 8; ++i) {
+      b.tick(1024);
+      if (b.apu().channel_output(1) == 15)
+        ++high;
+    }
+    assert(high == 4);
+
+    // Envelope: vol 15, decrease, period 1 -> after 2 full
+    // sequencer rounds (2 envelope clocks) volume is 13.
+    b.write(0xFF17, 0xF1);
+    b.write(0xFF19, 0x87); // retrigger reloads volume
+    b.tick(8192 * 16);
+    bool saw_13 = false;
+    for (int i = 0; i < 16; ++i) {
+      b.tick(128);
+      if (b.apu().channel_output(1) == 13)
+        saw_13 = true;
+    }
+    assert(saw_13);
+  }
+
+  {
+    std::vector<u8> apu_rom(0x8000, 0x00);
+    Bus b{apu_rom};
+
+    b.write(0xFF26, 0x80);
+
+    // Wave: recognizable pattern, full volume.
+    b.write(0xFF30, 0xF8); // nibbles 15, 8
+    for (u16 a = 0xFF31; a <= 0xFF3F; ++a)
+      b.write(a, 0x00);
+
+    b.write(0xFF1A, 0x80); // DAC on
+    b.write(0xFF1C, 0x20); // volume 100%
+    b.write(0xFF1D, 0x00);
+    b.write(0xFF1E, 0x87); // trigger, freq 1792 -> period 512
+
+    // Walk the first nibbles: pos advances every 512 cycles.
+    b.tick(512); // pos 1 -> low nibble of FF30 = 8
+    assert(b.apu().channel_output(2) == 8);
+    b.tick(512); // pos 2 -> high nibble of FF31 = 0
+    assert(b.apu().channel_output(2) == 0);
+
+    // 50% volume: retrigger, check nibble 8 becomes 4.
+    b.write(0xFF1C, 0x40);
+    b.write(0xFF1E, 0x87);
+    b.tick(512);
+    assert(b.apu().channel_output(2) == 4);
+
+    // Noise: full volume, fast period; output must vary.
+    b.write(0xFF21, 0xF0);
+    b.write(0xFF22, 0x00); // divisor 8, shift 0
+    b.write(0xFF23, 0x80); // trigger
+
+    int zeros = 0, highs = 0;
+    for (int i = 0; i < 64; ++i) {
+      b.tick(8);
+      if (b.apu().channel_output(3) == 0)
+        ++zeros;
+      if (b.apu().channel_output(3) == 15)
+        ++highs;
+    }
+    assert(zeros > 0 && highs > 0); // pseudo-random mix
+  }
 }
 
 std::vector<u8> create_test_rom() {

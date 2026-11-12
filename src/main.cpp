@@ -78,6 +78,13 @@ void run_emulator(const std::vector<u8> &rom, const std::string &rom_path) {
           }};
 
   InitWindow(GB_WIDTH * SCALE, GB_HEIGHT * SCALE, "GB Emulator");
+
+  InitAudioDevice();
+  SetAudioStreamBufferSizeDefault(1024);
+
+  AudioStream stream = LoadAudioStream(44100, 16, 2);
+  PlayAudioStream(stream);
+
   SetTargetFPS(60);
 
   Image img = GenImageColor(GB_WIDTH, GB_HEIGHT, BLACK);
@@ -91,6 +98,18 @@ void run_emulator(const std::vector<u8> &rom, const std::string &rom_path) {
 
     while (!frame_ready) {
       auto val = cpu.step();
+    }
+
+    auto &samples = bus.apu_mut().samples();
+
+    while (IsAudioStreamProcessed(stream) && samples.size() >= 2048) {
+      UpdateAudioStream(stream, samples.data(), 1024);
+      samples.erase(samples.begin(), samples.begin() + 2048);
+    }
+
+    // Latency guard: never let the FIFO exceed ~185ms.
+    if (samples.size() > 16384) {
+      samples.erase(samples.begin(), samples.end() - 8192);
     }
 
     UpdateTexture(texture, ppu.framebuffer().data());
