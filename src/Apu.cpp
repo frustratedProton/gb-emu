@@ -576,6 +576,18 @@ void Apu::emit_sample() {
     return static_cast<i16>(v);
   };
 
+  left = high_pass(left, m_cap_l);
+  right = high_pass(right, m_cap_r);
+
   m_samples.push_back(to_i16(left));
   m_samples.push_back(to_i16(right));
+}
+
+float Apu::high_pass(float in, float &cap) {
+  const float out = in - cap;
+
+  // 0.999958^(4194304/44100) is DMG output capacitor,
+  // per Pan Docs, precomputed for 44100 Hz
+  cap = in - out * 0.996f;
+  return out;
 }

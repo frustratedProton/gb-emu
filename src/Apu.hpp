@@ -78,4 +78,9 @@ private:
   std::vector<i16> m_samples;
 
   void emit_sample();
+
+  float m_cap_l{0.0f};
+  float m_cap_r{0.0f};
+
+  float high_pass(float in, float &cap);
 };

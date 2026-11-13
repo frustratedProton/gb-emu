@@ -6,13 +6,18 @@
 
 #include "raylib.h"
 
+#include <algorithm>
 #include <array>
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+static std::mutex g_audio_mutex;
+static std::vector<i16> g_audio_fifo;
 
 static constexpr int SCALE = 3;
 
@@ -63,6 +68,22 @@ static std::string save_path_for(const std::string &rom_path) {
   return path.string();
 }
 
+static void audio_callback(void *buffer, unsigned int frames) {
+  auto *out = static_cast<i16 *>(buffer);
+  const std::size_t need = static_cast<std::size_t>(frames) * 2;
+
+  std::lock_guard<std::mutex> lock{g_audio_mutex};
+
+  const std::size_t have = std::min(need, g_audio_fifo.size());
+
+  std::copy_n(g_audio_fifo.begin(), have, out);
+  g_audio_fifo.erase(g_audio_fifo.begin(),
+                     g_audio_fifo.begin() + static_cast<std::ptrdiff_t>(have));
+
+  // Underrun: pad with silence instead of garbage.
+  std::fill(out + have, out + need, static_cast<i16>(0));
+}
+
 void run_emulator(const std::vector<u8> &rom, const std::string &rom_path) {
   Bus bus{rom, save_path_for(rom_path)};
   Ppu ppu{bus};
@@ -80,12 +101,13 @@ void run_emulator(const std::vector<u8> &rom, const std::string &rom_path) {
   InitWindow(GB_WIDTH * SCALE, GB_HEIGHT * SCALE, "GB Emulator");
 
   InitAudioDevice();
-  SetAudioStreamBufferSizeDefault(1024);
+  //   SetAudioStreamBufferSizeDefault(1024);
 
   AudioStream stream = LoadAudioStream(44100, 16, 2);
+  SetAudioStreamCallback(stream, audio_callback);
   PlayAudioStream(stream);
 
-  SetTargetFPS(60);
+  //   SetTargetFPS(60);
 
   Image img = GenImageColor(GB_WIDTH, GB_HEIGHT, BLACK);
   Texture2D texture = LoadTextureFromImage(img);
@@ -100,16 +122,33 @@ void run_emulator(const std::vector<u8> &rom, const std::string &rom_path) {
       auto val = cpu.step();
     }
 
-    auto &samples = bus.apu_mut().samples();
+    // auto &samples = bus.apu_mut().samples();
 
-    while (IsAudioStreamProcessed(stream) && samples.size() >= 2048) {
-      UpdateAudioStream(stream, samples.data(), 1024);
-      samples.erase(samples.begin(), samples.begin() + 2048);
-    }
+    // while (IsAudioStreamProcessed(stream) && samples.size() >= 2048) {
+    //   UpdateAudioStream(stream, samples.data(), 1024);
+    //   samples.erase(samples.begin(), samples.begin() + 2048);
+    // }
 
     // Latency guard: never let the FIFO exceed ~185ms.
-    if (samples.size() > 16384) {
-      samples.erase(samples.begin(), samples.end() - 8192);
+    // if (samples.size() > 16384) {
+    //   samples.erase(samples.begin(), samples.end() - 8192);
+    // }
+
+    {
+      std::lock_guard<std::mutex> lock{g_audio_mutex};
+      auto &s = bus.apu_mut().samples();
+      g_audio_fifo.insert(g_audio_fifo.end(), s.begin(), s.end());
+      s.clear();
+    }
+
+    for (;;) {
+      {
+        std::lock_guard<std::mutex> lock{g_audio_mutex};
+        if (g_audio_fifo.size() <= 8820) { // 100ms of stereo i16
+          break;
+        }
+      }
+      WaitTime(0.001);
     }
 
     UpdateTexture(texture, ppu.framebuffer().data());
