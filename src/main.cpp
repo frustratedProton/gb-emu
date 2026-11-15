@@ -10,11 +10,14 @@
 #include <array>
 #include <exception>
 #include <filesystem>
+#include <fstream>
+#include <ios>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 static std::mutex g_audio_mutex;
@@ -99,6 +102,70 @@ static std::vector<u8> load_and_validate_rom(const std::string &rom_path) {
     throw std::runtime_error{"ROM too small"};
 
   return rom;
+}
+
+struct RomEntry {
+  std::string path;  // full path
+  std::string title; // header title
+};
+
+static std::string header_title_or_fallback(const std::filesystem::path &path) {
+  std::string title;
+  std::ifstream file{path, std::ios::binary};
+
+  if (file) {
+    std::array<char, 16> raw{};
+    file.seekg(0x134); // title is located at 0x134-0x142
+    file.read(raw.data(), raw.size());
+
+    if (file.gcount() == static_cast<std::streamsize>(raw.size())) {
+      for (char c : raw) {
+        const auto uc = static_cast<unsigned char>(c);
+        if (uc < 0x20 || uc > 0x7E) {
+          break;
+        }
+        title += c;
+      }
+    }
+  }
+
+  // trim spaces
+  while (!title.empty() && title.back() == ' ') {
+    title.pop_back();
+  }
+
+  if (title.empty()) {
+    title = path.stem().string(); // garbagio
+  }
+  return title;
+}
+
+static std::vector<RomEntry> scan_rom_folder(const std::filesystem::path &dir) {
+  std::vector<RomEntry> library;
+  std::error_code ec;
+
+  for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+
+    if (entry.path().extension() != ".gb") {
+      continue;
+    }
+
+    if (entry.file_size() < 0x150) {
+      continue;
+    }
+
+    library.push_back(
+        {entry.path().string(), header_title_or_fallback(entry.path())});
+  }
+
+  std::sort(
+      library.begin(), library.end(),
+      [](const RomEntry &a, const RomEntry &b) { return a.title < b.title; });
+
+  return library;
 }
 
 enum class AppState { Menu, Playing };
@@ -244,7 +311,7 @@ int main(int argc, char *argv[]) {
   InitWindow(GB_WIDTH * SCALE, GB_HEIGHT * SCALE, "GB Emulator");
 
   SetExitKey(KEY_NULL); // we use ESC for "back to menu", not quit
-  SetTargetFPS(60);     
+  SetTargetFPS(60);
 
   InitAudioDevice();
 
@@ -255,6 +322,18 @@ int main(int argc, char *argv[]) {
   AppState state = AppState::Menu;
   std::unique_ptr<Emulator> emu;
   std::string status = "DROP A .gb ROM HERE";
+
+  bool running = true;
+  int selected = 0;
+  int scroll = 0;
+
+  static constexpr const char *ROM_DIR = "roms";
+  std::vector<RomEntry> library = scan_rom_folder(ROM_DIR);
+
+  // TODO: TEMP, DELETE THIS LATER
+  for (const auto &e : library) {
+    std::cout << "[" << e.title << "]  <-  " << e.path << '\n';
+  }
 
   auto start_game = [&](const std::string &path) {
     try {
@@ -270,15 +349,20 @@ int main(int argc, char *argv[]) {
   };
 
   // also the fallback on WSLg, where drag-and-drop
-  // from Windows Explorer may simply never arrive.
+  // from Windows Explorer may simply never arrive
   if (argc == 2) {
     start_game(argv[1]);
   }
 
-  while (!WindowShouldClose()) {
+  while (running && !WindowShouldClose()) {
     switch (state) {
 
     case AppState::Menu: {
+      if (IsKeyPressed(KEY_ESCAPE)) {
+        running = false;
+        break;
+      }
+
       if (IsFileDropped()) {
         FilePathList dropped = LoadDroppedFiles();
         std::string path = (dropped.count > 0) ? dropped.paths[0] : "";
@@ -286,13 +370,68 @@ int main(int argc, char *argv[]) {
 
         if (!path.empty()) {
           start_game(path);
+          break;
         }
+      }
+
+      const int count = static_cast<int>(library.size());
+
+      if (count > 0) {
+        if (selected >= count) {
+          selected = count - 1;
+        }
+
+        if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+          selected = (selected + 1) % count;
+        }
+        if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
+          selected = (selected + count - 1) % count;
+        }
+
+        if (IsKeyPressed(KEY_ENTER)) {
+          start_game(library[selected].path);
+          break;
+        }
+      }
+
+      // DRAWING
+      const int line_h = 26;
+      const int top = 20;
+      const int visible =
+          (GB_HEIGHT * SCALE - top - 10) / line_h; // rows that fit
+
+      if (selected < scroll) {
+        scroll = selected;
+      }
+      if (selected >= scroll + visible) {
+        scroll = selected - visible + 1;
       }
 
       BeginDrawing();
       ClearBackground(BLACK);
-      DrawText(status.c_str(), 40, (GB_HEIGHT * SCALE) / 2 - 10, 20, RAYWHITE);
+
+      if (count == 0) {
+        DrawText("No ROMs found - put .gb files in roms/", 20, 20, 20,
+                 RAYWHITE);
+        DrawText(status.c_str(), 20, 50, 20, GRAY);
+      } else {
+        const int last = std::min(count, scroll + visible);
+
+        for (int i = scroll; i < last; ++i) {
+          const int y = top + (i - scroll) * line_h;
+          const bool is_selected = (i == selected);
+
+          if (is_selected) {
+            DrawRectangle(10, y - 3, GB_WIDTH * SCALE - 20, line_h, DARKGREEN);
+          }
+
+          DrawText(library[i].title.c_str(), 20, y, 20,
+                   is_selected ? RAYWHITE : GRAY);
+        }
+      }
+
       EndDrawing();
+
     } break;
 
     case AppState::Playing: {
@@ -301,6 +440,13 @@ int main(int argc, char *argv[]) {
         clear_audio_fifo(); // don't let the old game's audio tail play
         status = "DROP A .gb ROM HERE";
         state = AppState::Menu;
+        library = scan_rom_folder(ROM_DIR);
+
+        // FLUSH KEY_ESCAPE input
+        BeginDrawing();
+        ClearBackground(BLACK);
+        EndDrawing();
+
         break;
       }
 
