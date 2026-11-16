@@ -200,31 +200,40 @@ struct Emulator {
     UnloadTexture(texture);
   }
 
-  void run_frame() {
+  void run_frame(bool fast_forward) {
     update_joypad(bus);
 
-    frame_ready = false;
+    const int frames = fast_forward ? 4 : 1;
 
-    while (!frame_ready) {
-      (void)cpu.step();
+    for (int f = 0; f < frames; ++f) {
+      frame_ready = false;
+
+      while (!frame_ready) {
+        (void)cpu.step();
+      }
     }
 
     {
       std::lock_guard<std::mutex> lock{g_audio_mutex};
       auto &s = bus.apu_mut().samples();
-      g_audio_fifo.insert(g_audio_fifo.end(), s.begin(), s.end());
+
+      if (g_audio_fifo.size() < 8820) {
+        g_audio_fifo.insert(g_audio_fifo.end(), s.begin(), s.end());
+      }
       s.clear();
     }
 
-    // Audio-driven pacing: block until the FIFO drains to ~100ms
-    for (;;) {
-      {
-        std::lock_guard<std::mutex> lock{g_audio_mutex};
-        if (g_audio_fifo.size() <= 8820) { // 100ms of stereo i16
-          break;
+    if (!fast_forward) {
+      // Audio-driven pacing: block until the FIFO drains to ~100ms
+      for (;;) {
+        {
+          std::lock_guard<std::mutex> lock{g_audio_mutex};
+          if (g_audio_fifo.size() <= 8820) { // 100ms of stereo i16
+            break;
+          }
         }
+        WaitTime(0.001);
       }
-      WaitTime(0.001);
     }
   }
 
@@ -326,6 +335,7 @@ int main(int argc, char *argv[]) {
   bool running = true;
   int selected = 0;
   int scroll = 0;
+  bool paused = false;
 
   static constexpr const char *ROM_DIR = "roms";
   std::vector<RomEntry> library = scan_rom_folder(ROM_DIR);
@@ -337,6 +347,7 @@ int main(int argc, char *argv[]) {
 
   auto start_game = [&](const std::string &path) {
     try {
+      paused = false;
       clear_audio_fifo(); // gotcha (a): no leftover audio from the last game
       emu = std::make_unique<Emulator>(path);
       state = AppState::Playing;
@@ -450,11 +461,29 @@ int main(int argc, char *argv[]) {
         break;
       }
 
-      emu->run_frame();
+      if (IsKeyPressed(KEY_P)) {
+        paused = !paused;
+      }
+
+      const bool fast_forward = IsKeyDown(KEY_TAB);
+
+      if (!paused) {
+        emu->run_frame(fast_forward);
+      }
 
       BeginDrawing();
       ClearBackground(BLACK);
       emu->draw();
+
+      if (paused) {
+        DrawRectangle(0, 0, GB_WIDTH * SCALE, GB_HEIGHT * SCALE,
+                      Color{0, 0, 0, 160}); // dim the game
+        DrawText("PAUSED", GB_WIDTH * SCALE / 2 - 40,
+                 GB_HEIGHT * SCALE / 2 - 10, 20, RAYWHITE);
+      } else if (fast_forward) {
+        DrawText(">>", GB_WIDTH * SCALE - 40, 10, 30, YELLOW);
+      }
+
       EndDrawing();
     } break;
     }
