@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Bus.hpp"
+#include "state.hpp"
 #include "types.hpp"
+
 #include <functional>
 #include <utility>
 
@@ -60,6 +62,9 @@ public:
   void set_sp(u16 value) { m_registers.sp = value; }
 
   void finish_cycles(u32 total_cycles);
+
+  void save_state(StateWriter &w) const;
+  void load_state(StateReader &r);
 
 private:
   [[nodiscard]] u32 execute_cb();

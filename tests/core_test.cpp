@@ -2,6 +2,7 @@
 #include "../src/Bus.hpp"
 #include "../src/Cpu.hpp"
 #include "../src/rom.hpp"
+#include "../src/state.hpp"
 #include "../src/types.hpp"
 
 #include <cassert>
@@ -2107,6 +2108,116 @@ void run_cpu_tests(const std::vector<u8> &rom) {
         ++highs;
     }
     assert(zeros > 0 && highs > 0); // pseudo-random mix
+  }
+
+  {
+    StateWriter w;
+    w.write<u8>(0xAB);
+    w.write<u16>(0xBEEF);
+    w.write<u32>(0xDEADBEEFu);
+    w.write<u64>(0x0123456789ABCDEFull);
+    w.write<i16>(-1234);
+    w.write_bool(true);
+    w.write_bool(false);
+    w.write_float(0.996f);
+
+    const std::vector<u8> blob{1, 2, 3, 4, 5};
+    w.write_u8_vector(blob);
+
+    std::array<u8, 4> arr_in{9, 8, 7, 6};
+    w.write_array(arr_in);
+
+    StateReader r{w.data()};
+    assert(r.read<u8>() == 0xAB);
+    assert(r.read<u16>() == 0xBEEF);
+    assert(r.read<u32>() == 0xDEADBEEFu);
+    assert(r.read<u64>() == 0x0123456789ABCDEFull);
+    assert(r.read<i16>() == -1234);
+    assert(r.read_bool() == true);
+    assert(r.read_bool() == false);
+    assert(r.read_float() == 0.996f);
+    assert(r.read_u8_vector() == blob);
+
+    std::array<u8, 4> arr_out{};
+    r.read_array(arr_out);
+    assert(arr_out == arr_in);
+    assert(r.at_end());
+  }
+
+  // --- truncated data must throw, not crash ---
+  {
+    StateReader r{std::vector<u8>{0x01, 0x02}}; // only 2 bytes available
+    bool threw = false;
+    try {
+      (void)r.read<u32>(); // needs 4
+    } catch (const std::runtime_error &) {
+      threw = true;
+    }
+    assert(threw);
+  }
+
+  {
+    std::vector<u8> rom(0x8000, 0x00);
+    Bus bus{rom, ""};
+    Cpu cpu{bus};
+
+    // Known state A. (F low nibble kept 0 — DMG F bits 0-3 don't exist.)
+    cpu.set_af(0x12F0);
+    cpu.set_bc(0x3456);
+    cpu.set_de(0x789A);
+    cpu.set_hl(0xBCDE);
+    cpu.set_sp(0xFFF0);
+    cpu.set_pc(0x4242);
+
+    StateWriter w;
+    cpu.save_state(w);
+
+    // Scramble everything reachable.
+    cpu.set_af(0x0000);
+    cpu.set_bc(0xFFFF);
+    cpu.set_de(0x1111);
+    cpu.set_hl(0x2222);
+    cpu.set_sp(0x0001);
+    cpu.set_pc(0x0100);
+
+    StateReader r{w.data()};
+    cpu.load_state(r);
+
+    assert(cpu.af() == 0x12F0);
+    assert(cpu.bc() == 0x3456);
+    assert(cpu.de() == 0x789A);
+    assert(cpu.hl() == 0xBCDE);
+    assert(cpu.registers().sp == 0xFFF0);
+    assert(cpu.registers().pc == 0x4242);
+
+    // THE important assertion: load consumed EXACTLY what save produced.
+    // If save and load ever disagree on field count/width, this fires.
+    assert(r.at_end());
+  }
+
+  // --- state survives a transplant into a fresh Cpu ---
+  {
+    std::vector<u8> rom(0x8000, 0x00);
+    Bus bus{rom, ""};
+
+    Cpu donor{bus};
+    donor.set_af(0xA5F0);
+    donor.set_pc(0x1234);
+
+    StateWriter w;
+    donor.save_state(w);
+
+    Cpu recipient{bus}; // fresh post-boot state, then overwritten wholesale
+    StateReader r{w.data()};
+    recipient.load_state(r);
+
+    assert(recipient.af() == donor.af());
+    assert(recipient.bc() == donor.bc());
+    assert(recipient.de() == donor.de());
+    assert(recipient.hl() == donor.hl());
+    assert(recipient.registers().sp == donor.registers().sp);
+    assert(recipient.registers().pc == donor.registers().pc);
+    assert(r.at_end());
   }
 }
 

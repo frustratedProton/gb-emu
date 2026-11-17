@@ -1,5 +1,6 @@
 #include "Cpu.hpp"
 #include "Bus.hpp"
+#include "state.hpp"
 #include "types.hpp"
 #include <iomanip>
 #include <iostream>
@@ -1342,4 +1343,44 @@ void Cpu::finish_cycles(u32 total_cycles) {
   if (m_step_cycles < total_cycles) {
     advance_cycles(total_cycles - m_step_cycles);
   }
+}
+
+void Cpu::save_state(StateWriter &w) const {
+  w.write<u8>(m_registers.a);
+  w.write<u8>(m_registers.f);
+  w.write<u8>(m_registers.b);
+  w.write<u8>(m_registers.c);
+  w.write<u8>(m_registers.d);
+  w.write<u8>(m_registers.e);
+  w.write<u8>(m_registers.h);
+  w.write<u8>(m_registers.l);
+  w.write<u16>(m_registers.sp);
+  w.write<u16>(m_registers.pc);
+
+  w.write_bool(m_ime);
+  w.write_bool(m_ime_pending);
+  w.write_bool(m_halted);
+  w.write<u32>(m_step_cycles);
+  w.write_bool(m_halt_bug);
+  w.write_bool(m_ei_delay);
+}
+
+void Cpu::load_state(StateReader &r) {
+  m_registers.a = r.read<u8>();
+  m_registers.f = r.read<u8>();
+  m_registers.b = r.read<u8>();
+  m_registers.c = r.read<u8>();
+  m_registers.d = r.read<u8>();
+  m_registers.e = r.read<u8>();
+  m_registers.h = r.read<u8>();
+  m_registers.l = r.read<u8>();
+  m_registers.sp = r.read<u16>();
+  m_registers.pc = r.read<u16>();
+
+  m_ime = r.read_bool();
+  m_ime_pending = r.read_bool();
+  m_halted = r.read_bool();
+  m_step_cycles = r.read<u32>();
+  m_halt_bug = r.read_bool();
+  m_ei_delay = r.read_bool();
 }
