@@ -1,6 +1,8 @@
 #pragma once
 
+#include "state.hpp"
 #include "types.hpp"
+
 #include <array>
 #include <cstddef>
 #include <vector>
@@ -15,6 +17,10 @@ public:
   std::vector<i16> &samples() { return m_samples; }
 
   u8 channel_output(std::size_t ch) const; // debugging hook
+
+  void save_state(StateWriter &w) const;
+  void load_state(StateReader &r);
+
 private:
   std::array<u8, 0x30> m_regs{}; // FF10-FF3F backing store
   bool m_powered{false};

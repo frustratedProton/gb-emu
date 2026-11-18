@@ -1,4 +1,5 @@
 #include "Bus.hpp"
+#include "state.hpp"
 #include "types.hpp"
 
 #include <array>
@@ -1046,4 +1047,136 @@ void Bus::increment_tima() {
 
 void Bus::request_interrupt(u8 bit) {
   m_io.at(0x0F) |= static_cast<u8>(1 << bit);
+}
+
+void Bus::save_state(StateWriter &w) const {
+  // TODO:
+  m_apu.save_state(w);
+
+  // memory regions
+  w.write_array(m_vram);
+  w.write_array(m_wram);
+  w.write_array(m_oam);
+  w.write_array(m_io);
+  w.write_array(m_hram);
+
+  // joypads / interrupts
+  w.write<u8>(m_joypad_directions);
+  w.write<u8>(m_joypad_buttons);
+  w.write<u8>(m_ie);
+
+  // timer
+  w.write<u16>(m_div_counter);
+  w.write<u8>(m_tima_reload_delay);
+  w.write<u8>(static_cast<u8>(m_tima_reload_delay));
+
+  // ppu access gates
+  w.write_bool(m_cpu_vram_accessible);
+  w.write_bool(m_cpu_oam_accessible);
+
+  // MBC1
+  w.write_bool(m_is_mbc1);
+  w.write_bool(m_ram_enabled);
+  w.write<u8>(m_rom_bank_low5);
+  w.write<u8>(m_bank_high2);
+  w.write_bool(m_banking_mode);
+  w.write_u8_vector(m_external_ram);
+  w.write_bool(m_has_battery);
+  w.write_bool(m_ram_dirty);
+  w.write_bool(m_mbc1_multicart);
+
+  // MBC5
+  w.write_bool(m_is_mbc5);
+  w.write<u16>(m_mbc5_rom_bank);
+  w.write<u8>(m_mbc5_ram_bank);
+
+  // MBC3 + RTC
+  w.write_bool(m_is_mbc3);
+  w.write_bool(m_mbc3_has_rtc);
+  w.write<u8>(m_mbc3_rom_bank);
+  w.write<u8>(m_mbc3_ram_rtc_select);
+  w.write<u8>(m_mbc3_rtc.seconds);
+  w.write<u8>(m_mbc3_rtc.minutes);
+  w.write<u8>(m_mbc3_rtc.hours);
+  w.write<u8>(m_mbc3_rtc.day_low);
+  w.write<u8>(m_mbc3_rtc.day_high);
+  w.write<u8>(m_mbc3_rtc_latched.seconds);
+  w.write<u8>(m_mbc3_rtc_latched.minutes);
+  w.write<u8>(m_mbc3_rtc_latched.hours);
+  w.write<u8>(m_mbc3_rtc_latched.day_low);
+  w.write<u8>(m_mbc3_rtc_latched.day_high);
+  w.write_bool(m_mbc3_latch_armed);
+  w.write<u64>(m_mbc3_rtc_cycles);
+  w.write_bool(m_mbc3_rtc_dirty);
+
+  // MBC2
+  w.write_bool(m_is_mbc2);
+  w.write<u8>(m_mbc2_rom_bank);
+  w.write_array(m_mbc2_ram);
+}
+
+void Bus::load_state(StateReader &r) {
+  // apu
+  m_apu.load_state(r);
+
+  // memory region
+  r.read_array(m_vram);
+  r.read_array(m_wram);
+  r.read_array(m_oam);
+  r.read_array(m_io);
+  r.read_array(m_hram);
+
+  // joypad / interrupts
+  m_joypad_directions = r.read<u8>();
+  m_joypad_buttons = r.read<u8>();
+  m_ie = r.read<u8>();
+
+  // timer
+  m_div_counter = r.read<u16>();
+  m_tima_reload_delay = r.read<u8>();
+  m_tima_reload_phase = static_cast<TimaReloadPhase>(r.read<u8>());
+
+  // ppu
+  m_cpu_vram_accessible = r.read_bool();
+  m_cpu_oam_accessible = r.read_bool();
+
+  // MBC1
+  m_is_mbc1 = r.read_bool();
+  m_ram_enabled = r.read_bool();
+  m_rom_bank_low5 = r.read<u8>();
+  m_bank_high2 = r.read<u8>();
+  m_banking_mode = r.read_bool();
+  m_external_ram = r.read_u8_vector();
+  m_has_battery = r.read_bool();
+  m_ram_dirty = r.read_bool();
+  m_mbc1_multicart = r.read_bool();
+
+  // MBC5
+  m_is_mbc5 = r.read_bool();
+  m_mbc5_rom_bank = r.read<u16>();
+  m_mbc5_ram_bank = r.read<u8>();
+
+  // MBC3 + RTC
+  m_is_mbc3 = r.read_bool();
+  m_mbc3_has_rtc = r.read_bool();
+  m_mbc3_rom_bank = r.read<u8>();
+  m_mbc3_ram_rtc_select = r.read<u8>();
+  m_mbc3_rtc.seconds = r.read<u8>();
+  m_mbc3_rtc.minutes = r.read<u8>();
+  m_mbc3_rtc.hours = r.read<u8>();
+  m_mbc3_rtc.day_low = r.read<u8>();
+  m_mbc3_rtc.day_high = r.read<u8>();
+  m_mbc3_rtc_latched.seconds = r.read<u8>();
+  m_mbc3_rtc_latched.minutes = r.read<u8>();
+  m_mbc3_rtc_latched.hours = r.read<u8>();
+  m_mbc3_rtc_latched.day_low = r.read<u8>();
+  m_mbc3_rtc_latched.day_high = r.read<u8>();
+  m_mbc3_latch_armed = r.read_bool();
+  m_mbc3_rtc_cycles = r.read<u64>();
+  m_mbc3_rtc_dirty = r.read_bool();
+
+  // MBC2
+  m_is_mbc2 = r.read_bool();
+  m_mbc2_rom_bank = r.read<u8>();
+  r.read_array(m_mbc2_ram);
 }

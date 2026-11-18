@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Apu.hpp"
+#include "state.hpp"
 #include "types.hpp"
 
 #include <array>
@@ -80,6 +81,9 @@ public:
   }
 
   void save_battery_ram();
+
+  void save_state(StateWriter &w) const;
+  void load_state(StateReader &r);
 
 private:
   Apu m_apu{};

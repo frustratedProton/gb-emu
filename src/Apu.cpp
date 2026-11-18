@@ -591,3 +591,85 @@ float Apu::high_pass(float in, float &cap) {
   cap = in - out * 0.996f;
   return out;
 }
+
+void Apu::save_state(StateWriter &w) const {
+  w.write_array(m_regs);
+  w.write_bool(m_powered);
+
+  for (const Channel &ch : m_ch) {
+    w.write_bool(ch.enabled);
+    w.write<u16>(ch.length);
+    w.write_bool(ch.length_enabled);
+  }
+
+  w.write<u32>(m_fs_cycles);
+  w.write<u8>(m_fs_step);
+
+  w.write<u16>(m_sweep_shadow);
+  w.write<u8>(m_sweep_timer);
+  w.write_bool(m_sweep_enabled);
+  w.write_bool(m_sweep_negated);
+
+  for (const Square &sq : m_sq) {
+    w.write<u32>(sq.timer);
+    w.write<u8>(sq.duty_pos);
+    w.write<u8>(sq.volume);
+    w.write<u8>(sq.env_timer);
+  }
+
+  w.write<u32>(m_wave.timer);
+  w.write<u8>(m_wave.pos);
+
+  w.write<u32>(m_noise.timer);
+  w.write<u16>(m_noise.lfsr);
+  w.write<u8>(m_noise.volume);
+  w.write<u8>(m_noise.env_timer);
+
+  w.write<u64>(m_sample_clock);
+
+  w.write_float(m_cap_l);
+  w.write_float(m_cap_r);
+
+  // m_samples: deliberately NOT serialized -- transient output queue.
+}
+
+void Apu::load_state(StateReader &r) {
+  r.read_array(m_regs);
+  m_powered = r.read_bool();
+
+  for (Channel &ch : m_ch) {
+    ch.enabled = r.read_bool();
+    ch.length = r.read<u16>();
+    ch.length_enabled = r.read_bool();
+  }
+
+  m_fs_cycles = r.read<u32>();
+  m_fs_step = r.read<u8>();
+
+  m_sweep_shadow = r.read<u16>();
+  m_sweep_timer = r.read<u8>();
+  m_sweep_enabled = r.read_bool();
+  m_sweep_negated = r.read_bool();
+
+  for (Square &sq : m_sq) {
+    sq.timer = r.read<u32>();
+    sq.duty_pos = r.read<u8>();
+    sq.volume = r.read<u8>();
+    sq.env_timer = r.read<u8>();
+  }
+
+  m_wave.timer = r.read<u32>();
+  m_wave.pos = r.read<u8>();
+
+  m_noise.timer = r.read<u32>();
+  m_noise.lfsr = r.read<u16>();
+  m_noise.volume = r.read<u8>();
+  m_noise.env_timer = r.read<u8>();
+
+  m_sample_clock = r.read<u64>();
+
+  m_cap_l = r.read_float();
+  m_cap_r = r.read_float();
+
+  m_samples.clear(); // stale in-flight audio does not survive a load
+}

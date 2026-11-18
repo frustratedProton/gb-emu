@@ -2,6 +2,7 @@
 
 #include "Bus.hpp"
 #include "raylib.h"
+#include "state.hpp"
 #include "types.hpp"
 
 #include <array>
@@ -31,6 +32,9 @@ public:
   }
 
   void update_cpu_access();
+
+  void save_state(StateWriter &w) const;
+  void load_state(StateReader &r);
 
 private:
   enum class Mode : u8 {

@@ -2219,6 +2219,85 @@ void run_cpu_tests(const std::vector<u8> &rom) {
     assert(recipient.registers().pc == donor.registers().pc);
     assert(r.at_end());
   }
+
+  {
+    std::vector<u8> rom(0x8000, 0x00); // type 0x00: ROM-only cart
+    Bus a{rom, ""};
+
+    a.write(0x8123, 0xAA); // VRAM
+    a.write(0xC234, 0xBB); // WRAM
+    a.write(0xFE05, 0xCC); // OAM
+    a.write(0xFF80, 0xDD); // HRAM
+    a.write(0xFF42, 0x55); // SCY (IO)
+    a.write(0xFFFF, 0x1F); // IE
+    a.set_if(0x05);
+
+    StateWriter w;
+    a.save_state(w);
+
+    Bus b{rom, ""}; // fresh, everything zero/default
+    StateReader r{w.data()};
+    b.load_state(r);
+
+    assert(b.read(0x8123) == 0xAA);
+    assert(b.read(0xC234) == 0xBB);
+    assert(b.read(0xFE05) == 0xCC);
+    assert(b.read(0xFF80) == 0xDD);
+    assert(b.read(0xFF42) == 0x55);
+    assert(b.read(0xFFFF) == 0x1F);
+    assert(b.get_if() == 0x05);
+    assert(r.at_end());
+  }
+
+  // --- mapper registers travel with the state (MBC1 + RAM) ---
+  {
+    std::vector<u8> rom(0x8000, 0x00);
+    rom[0x147] = 0x02; // MBC1+RAM
+    rom[0x149] = 0x02; // 8 KB external RAM
+
+    Bus a{rom, ""};
+    a.write(0x0000, 0x0A); // enable external RAM
+    a.write(0xA010, 0x77);
+
+    StateWriter w;
+    a.save_state(w);
+
+    Bus b{rom, ""}; // fresh bus: RAM disabled AND empty
+    StateReader r{w.data()};
+    b.load_state(r);
+
+    // Passes only if BOTH m_ram_enabled and m_external_ram were restored —
+    // a fresh bus would return open-bus/0xFF here.
+    assert(b.read(0xA010) == 0x77);
+    assert(r.at_end());
+  }
+
+  {
+    std::vector<u8> rom(0x8000, 0x00);
+    Bus a{rom, ""};
+
+    a.write(0xFF26, 0x80); // NR52: power on
+    a.write(0xFF12, 0xF3); // NR12: envelope, DAC on
+    a.write(0xFF11, 0x81); // NR11: duty 2, length load
+    a.write(0xFF13, 0x45); // NR13: freq low
+    a.write(0xFF14, 0x87); // NR14: trigger + freq high -> ch1 running
+    a.write(0xFF30, 0xAB); // wave RAM byte 0
+
+    StateWriter w;
+    a.save_state(w);
+
+    Bus b{rom, ""}; // fresh bus: APU powered off, silent
+    StateReader r{w.data()};
+    b.load_state(r);
+
+    // NR52 read = power bit + live channel-enabled flags: passes only if
+    // m_powered AND m_ch[0].enabled were restored, not just m_regs.
+    assert(b.read(0xFF26) == a.read(0xFF26));
+    assert(b.read(0xFF12) == a.read(0xFF12));
+    assert(b.read(0xFF11) == a.read(0xFF11)); // read-mask applied identically
+    assert(b.read(0xFF30) == 0xAB);           // wave RAM traveled
+    assert(r.at_end());
+  }
 }
 
 std::vector<u8> create_test_rom() {

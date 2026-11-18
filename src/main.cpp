@@ -2,6 +2,7 @@
 #include "Cpu.hpp"
 #include "Ppu.hpp"
 #include "rom.hpp"
+#include "state.hpp"
 #include "types.hpp"
 
 #include "raylib.h"
@@ -88,7 +89,15 @@ static void update_joypad(Bus &bus) {
 
 static std::string save_path_for(const std::string &rom_path) {
   std::filesystem::path path{rom_path};
-  path.replace_extension(".sav");
+  path.replace_extension(".state");
+  return path.string();
+}
+
+static constexpr u16 STATE_VERSION = 1;
+
+static std::string state_path_for(const std::string &rom_path) {
+  std::filesystem::path path{rom_path};
+  path.replace_extension(".state");
   return path.string();
 }
 
@@ -178,15 +187,18 @@ struct Emulator {
   Cpu cpu;
   Texture2D texture{};
 
-  explicit Emulator(const std::string &rom_path)
-      : rom_data{load_and_validate_rom(rom_path)},
-        bus{rom_data, save_path_for(rom_path)}, ppu{bus},
+  std::string rom_path;
+
+  explicit Emulator(const std::string &rom_path_arg)
+      : rom_data{load_and_validate_rom(rom_path_arg)},
+        bus{rom_data, save_path_for(rom_path_arg)}, ppu{bus},
         cpu{bus, [this](u32 cycles) {
               bus.tick(cycles);
               if (ppu.tick(cycles)) {
                 frame_ready = true;
               }
             }} {
+    rom_path = rom_path_arg;
     Image img = GenImageColor(GB_WIDTH, GB_HEIGHT, BLACK);
     texture = LoadTextureFromImage(img);
     UnloadImage(img);
@@ -240,6 +252,62 @@ struct Emulator {
   void draw() {
     UpdateTexture(texture, ppu.framebuffer().data());
     DrawTextureEx(texture, {0, 0}, 0.0f, static_cast<float>(SCALE), WHITE);
+  }
+
+  void save_state() const {
+    StateWriter w;
+
+    // header: magic, version, ROM identity
+    const std::array<u8, 4> magic{'G', 'B', 'S', 'T'};
+    w.write_array(magic);
+    w.write<u16>(STATE_VERSION);
+    w.write<u64>(rom_data.size());
+    w.write_bytes(rom_data.data() + 0x134, 16); // header title
+    w.write<u8>(rom_data[0x14E]);               // global checksum
+    w.write<u8>(rom_data[0x14F]);
+
+    cpu.save_state(w);
+    bus.save_state(w);
+    ppu.save_state(w);
+
+    save_state_to_file(state_path_for(rom_path), w);
+  }
+
+  void load_state() {
+    StateReader r = load_state_from_file(state_path_for(rom_path));
+
+    std::array<u8, 4> magic{};
+    r.read_array(magic);
+    if (magic != std::array<u8, 4>{'G', 'B', 'S', 'T'}) {
+      throw std::runtime_error{"state: not a state file"};
+    }
+    if (r.read<u16>() != STATE_VERSION) {
+      throw std::runtime_error{"state: version mismatch"};
+    }
+    if (r.read<u64>() != rom_data.size()) {
+      throw std::runtime_error{"state: wrong ROM (size)"};
+    }
+    std::array<u8, 16> title{};
+    r.read_array(title);
+    if (!std::equal(title.begin(), title.end(), rom_data.begin() + 0x134)) {
+      throw std::runtime_error{"state: wrong ROM (title)"};
+    }
+    const u8 csum_hi = r.read<u8>();
+    const u8 csum_lo = r.read<u8>();
+    if (csum_hi != rom_data[0x14E] || csum_lo != rom_data[0x14F]) {
+      throw std::runtime_error{"state: wrong ROM (checksum)"};
+    }
+
+    cpu.load_state(r);
+    bus.load_state(r);
+    ppu.load_state(r);
+
+    if (!r.at_end()) {
+      throw std::runtime_error{"state: trailing data"};
+    }
+
+    frame_ready = false;
+    clear_audio_fifo(); 
   }
 };
 
@@ -339,11 +407,6 @@ int main(int argc, char *argv[]) {
 
   static constexpr const char *ROM_DIR = "roms";
   std::vector<RomEntry> library = scan_rom_folder(ROM_DIR);
-
-  // TODO: TEMP, DELETE THIS LATER
-  for (const auto &e : library) {
-    std::cout << "[" << e.title << "]  <-  " << e.path << '\n';
-  }
 
   auto start_game = [&](const std::string &path) {
     try {
@@ -469,6 +532,24 @@ int main(int argc, char *argv[]) {
 
       if (!paused) {
         emu->run_frame(fast_forward);
+      }
+
+      if (IsKeyPressed(KEY_F5)) {
+        try {
+          emu->save_state();
+          std::cout << "State Saved\n";
+        } catch (const std::exception &error) {
+          std::cerr << "Save state failed: " << error.what() << '\n';
+        }
+      }
+
+      if (IsKeyPressed(KEY_F8)) {
+        try {
+          emu->load_state();
+          std::cout << "State loaded\n";
+        } catch (const std::exception &error) {
+          std::cerr << "Load state failed: " << error.what() << '\n';
+        }
       }
 
       BeginDrawing();

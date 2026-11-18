@@ -1,8 +1,10 @@
 #include "Ppu.hpp"
+#include "state.hpp"
+#include "types.hpp"
 
 #include <algorithm>
 #include <cstddef>
-#include <iostream>
+#include <raylib.h>
 
 Ppu::Ppu(Bus &bus) : m_bus(bus) {
   m_bus.write(0xFF44, 0);
@@ -508,4 +510,37 @@ void Ppu::update_cpu_access() {
   }
 
   m_bus.ppu_set_cpu_access(vram_accessible, oam_accessible);
+}
+
+void Ppu::save_state(StateWriter &w) const {
+  static_assert(sizeof(Color) == 4, "Color layout assumption");
+  w.write_bytes(reinterpret_cast<const u8 *>(m_framebuffer.data()),
+                m_framebuffer.size() * sizeof(Color));
+  w.write_array(m_bg_color_ids);
+
+  w.write<u32>(m_cycles);
+  w.write<u8>(m_ly);
+  w.write<u8>(static_cast<u8>(m_mode));
+  w.write_bool(m_lcd_enabled);
+  w.write_bool(m_stat_irq_line);
+
+  w.write<u8>(m_window_line);
+
+  w.write_bool(m_lcd_on_line0);
+  w.write_bool(m_line0_mode0_phase);
+}
+
+void Ppu::load_state(StateReader &r) {
+  r.read_bytes(reinterpret_cast<u8 *>(m_framebuffer.data()),
+               m_framebuffer.size() * sizeof(Color));
+  r.read_array(m_bg_color_ids);
+
+  m_cycles = r.read<u32>();
+  m_ly = r.read<u8>();
+  m_mode = static_cast<Mode>(r.read<u8>());
+  m_lcd_enabled = r.read_bool();
+  m_stat_irq_line = r.read_bool();
+  m_window_line = r.read<u8>();
+  m_lcd_on_line0 = r.read_bool();
+  m_line0_mode0_phase = r.read_bool();
 }
