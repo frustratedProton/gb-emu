@@ -26,6 +26,33 @@ static std::vector<i16> g_audio_fifo;
 
 static constexpr int SCALE = 3;
 
+static constexpr Color UI_BG = GB_COLORS[3]; // darkest green
+static constexpr Color UI_PANEL = GB_COLORS[2];
+static constexpr Color UI_ACCENT = GB_COLORS[1];
+static constexpr Color UI_TEXT = GB_COLORS[0]; // lightest green
+
+struct Toast {
+  std::string text;
+  double until{0.0};
+};
+
+static void show_toast(Toast &toast, const std::string &text) {
+  toast.text = text;
+  toast.until = GetTime() + 2.0;
+}
+
+static void draw_toast(const Toast &toast) {
+  if (GetTime() >= toast.until) {
+    return;
+  }
+  const int w = GB_WIDTH * SCALE;
+  const int h = GB_HEIGHT * SCALE;
+  const int tw = MeasureText(toast.text.c_str(), 20);
+  DrawRectangleRounded({(w - tw) / 2.0f - 14.0f, h - 48.0f, tw + 28.0f, 34.0f},
+                       0.5f, 8, Fade(UI_BG, 0.85f));
+  DrawText(toast.text.c_str(), (w - tw) / 2, h - 41, 20, UI_TEXT);
+}
+
 static void audio_callback(void *buffer, unsigned int frames) {
   auto *out = static_cast<i16 *>(buffer);
   const std::size_t need = static_cast<std::size_t>(frames) * 2;
@@ -307,7 +334,7 @@ struct Emulator {
     }
 
     frame_ready = false;
-    clear_audio_fifo(); 
+    clear_audio_fifo();
   }
 };
 
@@ -398,12 +425,14 @@ int main(int argc, char *argv[]) {
 
   AppState state = AppState::Menu;
   std::unique_ptr<Emulator> emu;
-  std::string status = "DROP A .gb ROM HERE";
 
   bool running = true;
   int selected = 0;
   int scroll = 0;
   bool paused = false;
+
+  Toast toast;
+  float cursor_y = -1.0f;
 
   static constexpr const char *ROM_DIR = "roms";
   std::vector<RomEntry> library = scan_rom_folder(ROM_DIR);
@@ -416,7 +445,7 @@ int main(int argc, char *argv[]) {
       state = AppState::Playing;
     } catch (const std::exception &error) {
       std::cerr << "Error: " << error.what() << '\n';
-      status = std::string{"Error: "} + error.what();
+      show_toast(toast, std::string{"ERROR: "} + error.what());
       emu.reset();
       state = AppState::Menu;
     }
@@ -454,25 +483,25 @@ int main(int argc, char *argv[]) {
         if (selected >= count) {
           selected = count - 1;
         }
-
         if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
           selected = (selected + 1) % count;
         }
         if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
           selected = (selected + count - 1) % count;
         }
-
         if (IsKeyPressed(KEY_ENTER)) {
           start_game(library[selected].path);
           break;
         }
       }
 
-      // DRAWING
-      const int line_h = 26;
-      const int top = 20;
-      const int visible =
-          (GB_HEIGHT * SCALE - top - 10) / line_h; // rows that fit
+      // --- layout ---
+      const int W = GB_WIDTH * SCALE;
+      const int H = GB_HEIGHT * SCALE;
+      const int line_h = 28;
+      const int list_top = 56;
+      const int list_bottom = H - 36;
+      const int visible = (list_bottom - list_top) / line_h;
 
       if (selected < scroll) {
         scroll = selected;
@@ -482,50 +511,105 @@ int main(int argc, char *argv[]) {
       }
 
       BeginDrawing();
-      ClearBackground(BLACK);
+      ClearBackground(UI_BG);
+
+      // header
+      DrawText("GB EMULATOR", 20, 14, 20, UI_TEXT);
+      if (count > 0) {
+        const std::string n =
+            std::to_string(count) + (count == 1 ? " GAME" : " GAMES");
+        DrawText(n.c_str(), W - 20 - MeasureText(n.c_str(), 10), 20, 10,
+                 UI_ACCENT);
+      }
+      DrawRectangle(0, 44, W, 2, UI_PANEL);
 
       if (count == 0) {
-        DrawText("No ROMs found - put .gb files in roms/", 20, 20, 20,
-                 RAYWHITE);
-        DrawText(status.c_str(), 20, 50, 20, GRAY);
+        const char *msg1 = "NO GAMES FOUND";
+        const char *msg2 = "put .gb files in the roms/ folder";
+        DrawText(msg1, (W - MeasureText(msg1, 20)) / 2, H / 2 - 24, 20,
+                 UI_TEXT);
+        DrawText(msg2, (W - MeasureText(msg2, 10)) / 2, H / 2 + 4, 10,
+                 UI_ACCENT);
       } else {
+        // animated selection cursor: eases toward the selected row
+        const float target_y =
+            static_cast<float>(list_top + (selected - scroll) * line_h);
+        if (cursor_y < 0.0f) {
+          cursor_y = target_y; 
+        }
+        cursor_y += (target_y - cursor_y) * 0.35f;
+
+        DrawRectangleRounded({10.0f, cursor_y, static_cast<float>(W - 26),
+                              static_cast<float>(line_h - 4)},
+                             0.45f, 8, UI_ACCENT);
+
         const int last = std::min(count, scroll + visible);
-
         for (int i = scroll; i < last; ++i) {
-          const int y = top + (i - scroll) * line_h;
+          const int y = list_top + (i - scroll) * line_h + 3;
           const bool is_selected = (i == selected);
+          DrawText(library[i].title.c_str(), 24, y, 20,
+                   is_selected ? UI_BG : Fade(UI_TEXT, 0.7f));
+        }
 
-          if (is_selected) {
-            DrawRectangle(10, y - 3, GB_WIDTH * SCALE - 20, line_h, DARKGREEN);
-          }
-
-          DrawText(library[i].title.c_str(), 20, y, 20,
-                   is_selected ? RAYWHITE : GRAY);
+        // scrollbar
+        if (count > visible) {
+          const float track_h = static_cast<float>(list_bottom - list_top);
+          const float thumb_h = track_h * static_cast<float>(visible) / count;
+          const float thumb_y =
+              list_top + track_h * static_cast<float>(scroll) / count;
+          DrawRectangle(W - 8, list_top, 3, static_cast<int>(track_h),
+                        Fade(UI_PANEL, 0.5f));
+          DrawRectangle(W - 8, static_cast<int>(thumb_y), 3,
+                        static_cast<int>(thumb_h), UI_ACCENT);
         }
       }
 
-      EndDrawing();
+      // footer
+      DrawRectangle(0, H - 32, W, 2, UI_PANEL);
+      DrawText("W/S  MOVE      ENTER  PLAY      ESC  QUIT", 20, H - 22, 10,
+               UI_ACCENT);
 
+      draw_toast(toast);
+      EndDrawing();
     } break;
 
     case AppState::Playing: {
       if (IsKeyPressed(KEY_ESCAPE)) {
         emu.reset();        // dtor fires -> battery save
         clear_audio_fifo(); // don't let the old game's audio tail play
-        status = "DROP A .gb ROM HERE";
         state = AppState::Menu;
         library = scan_rom_folder(ROM_DIR);
+        cursor_y = -1.0f; // menu cursor snaps instead of sliding across
 
-        // FLUSH KEY_ESCAPE input
+        // flush one frame so Menu doesn't see this same ESC press-edge
         BeginDrawing();
-        ClearBackground(BLACK);
+        ClearBackground(UI_BG);
         EndDrawing();
-
         break;
       }
 
       if (IsKeyPressed(KEY_P)) {
         paused = !paused;
+      }
+
+      if (IsKeyPressed(KEY_F5)) {
+        try {
+          emu->save_state();
+          show_toast(toast, "STATE SAVED");
+        } catch (const std::exception &error) {
+          std::cerr << "Save state failed: " << error.what() << '\n';
+          show_toast(toast, "SAVE FAILED");
+        }
+      }
+
+      if (IsKeyPressed(KEY_F8)) {
+        try {
+          emu->load_state();
+          show_toast(toast, "STATE LOADED");
+        } catch (const std::exception &error) {
+          std::cerr << "Load state failed: " << error.what() << '\n';
+          show_toast(toast, "LOAD FAILED");
+        }
       }
 
       const bool fast_forward = IsKeyDown(KEY_TAB);
@@ -534,37 +618,21 @@ int main(int argc, char *argv[]) {
         emu->run_frame(fast_forward);
       }
 
-      if (IsKeyPressed(KEY_F5)) {
-        try {
-          emu->save_state();
-          std::cout << "State Saved\n";
-        } catch (const std::exception &error) {
-          std::cerr << "Save state failed: " << error.what() << '\n';
-        }
-      }
-
-      if (IsKeyPressed(KEY_F8)) {
-        try {
-          emu->load_state();
-          std::cout << "State loaded\n";
-        } catch (const std::exception &error) {
-          std::cerr << "Load state failed: " << error.what() << '\n';
-        }
-      }
-
       BeginDrawing();
-      ClearBackground(BLACK);
+      ClearBackground(UI_BG);
       emu->draw();
 
       if (paused) {
         DrawRectangle(0, 0, GB_WIDTH * SCALE, GB_HEIGHT * SCALE,
-                      Color{0, 0, 0, 160}); // dim the game
-        DrawText("PAUSED", GB_WIDTH * SCALE / 2 - 40,
-                 GB_HEIGHT * SCALE / 2 - 10, 20, RAYWHITE);
+                      Fade(UI_BG, 0.65f));
+        const char *msg = "PAUSED";
+        DrawText(msg, (GB_WIDTH * SCALE - MeasureText(msg, 30)) / 2,
+                 GB_HEIGHT * SCALE / 2 - 15, 30, UI_TEXT);
       } else if (fast_forward) {
-        DrawText(">>", GB_WIDTH * SCALE - 40, 10, 30, YELLOW);
+        DrawText(">>", GB_WIDTH * SCALE - 46, 10, 30, UI_ACCENT);
       }
 
+      draw_toast(toast);
       EndDrawing();
     } break;
     }
