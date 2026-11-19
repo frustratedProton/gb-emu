@@ -26,10 +26,10 @@ static std::vector<i16> g_audio_fifo;
 
 static constexpr int SCALE = 3;
 
-static constexpr Color UI_BG = GB_COLORS[3]; // darkest green
+static constexpr Color UI_BG = GB_COLORS[3]; 
 static constexpr Color UI_PANEL = GB_COLORS[2];
 static constexpr Color UI_ACCENT = GB_COLORS[1];
-static constexpr Color UI_TEXT = GB_COLORS[0]; // lightest green
+static constexpr Color UI_TEXT = GB_COLORS[0];
 
 struct Toast {
   std::string text;
@@ -116,7 +116,7 @@ static void update_joypad(Bus &bus) {
 
 static std::string save_path_for(const std::string &rom_path) {
   std::filesystem::path path{rom_path};
-  path.replace_extension(".state");
+  path.replace_extension(".sav");
   return path.string();
 }
 
@@ -204,7 +204,43 @@ static std::vector<RomEntry> scan_rom_folder(const std::filesystem::path &dir) {
   return library;
 }
 
-enum class AppState { Menu, Playing };
+struct BrowserEntry {
+  std::string name;
+  std::filesystem::path path;
+  bool is_dir{false};
+};
+
+static std::vector<BrowserEntry>
+scan_browse_dir(const std::filesystem::path &dir) {
+  std::vector<BrowserEntry> out;
+  std::error_code ec;
+
+  for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
+    const std::string name = entry.path().filename().string();
+    if (name.empty() || name.front() == '.') {
+      continue;
+    }
+
+    std::error_code tec;
+    if (entry.is_directory(tec)) {
+      out.push_back({name + "/", entry.path(), true});
+    } else if (entry.is_regular_file(tec) &&
+               entry.path().extension() == ".gb") {
+      out.push_back({name, entry.path(), false});
+    }
+  }
+
+  std::sort(out.begin(), out.end(),
+            [](const BrowserEntry &a, const BrowserEntry &b) {
+              if (a.is_dir != b.is_dir)
+                return a.is_dir;
+              return a.name < b.name;
+            });
+
+  return out;
+}
+
+enum class AppState { Menu, Playing, Browse };
 
 struct Emulator {
   std::vector<u8> rom_data;
@@ -338,79 +374,6 @@ struct Emulator {
   }
 };
 
-#if 0  // OLD CODE
-void run_emulator(const std::vector<u8> &rom, const std::string &rom_path) {
-  Bus bus{rom, save_path_for(rom_path)};
-  Ppu ppu{bus};
-
-  bool frame_ready = false;
-
-  Cpu cpu{bus, [&](u32 cycles) {
-            bus.tick(cycles);
-
-            if (ppu.tick(cycles)) {
-              frame_ready = true;
-            }
-          }};
-
-  InitWindow(GB_WIDTH * SCALE, GB_HEIGHT * SCALE, "GB Emulator");
-
-  SetExitKey(KEY_NULL);
-  SetTargetFPS(60);
-
-  InitAudioDevice();
-  //   SetAudioStreamBufferSizeDefault(1024);
-
-  AudioStream stream = LoadAudioStream(44100, 16, 2);
-  SetAudioStreamCallback(stream, audio_callback);
-  PlayAudioStream(stream);
-
-  //   SetTargetFPS(60);
-
-  Image img = GenImageColor(GB_WIDTH, GB_HEIGHT, BLACK);
-  Texture2D texture = LoadTextureFromImage(img);
-  UnloadImage(img);
-
-  while (!WindowShouldClose()) {
-    update_joypad(bus);
-
-    frame_ready = false;
-
-    while (!frame_ready) {
-      auto val = cpu.step();
-    }
-
-    {
-      std::lock_guard<std::mutex> lock{g_audio_mutex};
-      auto &s = bus.apu_mut().samples();
-      g_audio_fifo.insert(g_audio_fifo.end(), s.begin(), s.end());
-      s.clear();
-    }
-
-    for (;;) {
-      {
-        std::lock_guard<std::mutex> lock{g_audio_mutex};
-        if (g_audio_fifo.size() <= 8820) { // 100ms of stereo i16
-          break;
-        }
-      }
-      WaitTime(0.001);
-    }
-
-    UpdateTexture(texture, ppu.framebuffer().data());
-
-    BeginDrawing();
-    ClearBackground(BLACK);
-    DrawTextureEx(texture, {0, 0}, 0.0f, static_cast<float>(SCALE), WHITE);
-    EndDrawing();
-  }
-
-  bus.save_battery_ram();
-  UnloadTexture(texture);
-  CloseWindow();
-}
-#endif // OLD CODE
-
 int main(int argc, char *argv[]) {
   InitWindow(GB_WIDTH * SCALE, GB_HEIGHT * SCALE, "GB Emulator");
 
@@ -434,8 +397,13 @@ int main(int argc, char *argv[]) {
   Toast toast;
   float cursor_y = -1.0f;
 
-  static constexpr const char *ROM_DIR = "roms";
-  std::vector<RomEntry> library = scan_rom_folder(ROM_DIR);
+  std::string rom_dir = "roms";
+  std::vector<RomEntry> library = scan_rom_folder(rom_dir);
+
+  std::filesystem::path browse_dir;
+  std::vector<BrowserEntry> browse_entries;
+  int browse_selected = 0;
+  int browse_scroll = 0;
 
   auto start_game = [&](const std::string &path) {
     try {
@@ -477,6 +445,19 @@ int main(int argc, char *argv[]) {
         }
       }
 
+      if (IsKeyPressed(KEY_O)) {
+        browse_dir =
+            std::filesystem::absolute(std::filesystem::is_directory(rom_dir)
+                                          ? std::filesystem::path{rom_dir}
+                                          : std::filesystem::current_path());
+        browse_entries = scan_browse_dir(browse_dir);
+        browse_selected = 0;
+        browse_scroll = 0;
+        cursor_y = -1.0f;
+        state = AppState::Browse;
+        break;
+      }
+
       const int count = static_cast<int>(library.size());
 
       if (count > 0) {
@@ -495,7 +476,6 @@ int main(int argc, char *argv[]) {
         }
       }
 
-      // --- layout ---
       const int W = GB_WIDTH * SCALE;
       const int H = GB_HEIGHT * SCALE;
       const int line_h = 28;
@@ -535,7 +515,7 @@ int main(int argc, char *argv[]) {
         const float target_y =
             static_cast<float>(list_top + (selected - scroll) * line_h);
         if (cursor_y < 0.0f) {
-          cursor_y = target_y; 
+          cursor_y = target_y;
         }
         cursor_y += (target_y - cursor_y) * 0.35f;
 
@@ -566,8 +546,8 @@ int main(int argc, char *argv[]) {
 
       // footer
       DrawRectangle(0, H - 32, W, 2, UI_PANEL);
-      DrawText("W/S  MOVE      ENTER  PLAY      ESC  QUIT", 20, H - 22, 10,
-               UI_ACCENT);
+      DrawText("W/S  MOVE    ENTER  PLAY    O  OPEN ROM    ESC  QUIT", 20,
+               H - 22, 10, UI_ACCENT);
 
       draw_toast(toast);
       EndDrawing();
@@ -578,7 +558,7 @@ int main(int argc, char *argv[]) {
         emu.reset();        // dtor fires -> battery save
         clear_audio_fifo(); // don't let the old game's audio tail play
         state = AppState::Menu;
-        library = scan_rom_folder(ROM_DIR);
+        library = scan_rom_folder(rom_dir);
         cursor_y = -1.0f; // menu cursor snaps instead of sliding across
 
         // flush one frame so Menu doesn't see this same ESC press-edge
@@ -631,6 +611,153 @@ int main(int argc, char *argv[]) {
       } else if (fast_forward) {
         DrawText(">>", GB_WIDTH * SCALE - 46, 10, 30, UI_ACCENT);
       }
+
+      draw_toast(toast);
+      EndDrawing();
+    } break;
+
+    case AppState::Browse: {
+      if (IsKeyPressed(KEY_ESCAPE)) {
+        state = AppState::Menu;
+        cursor_y = -1.0f;
+
+        BeginDrawing();
+        ClearBackground(UI_BG);
+        EndDrawing();
+        break;
+      }
+
+      if (IsKeyPressed(KEY_BACKSPACE)) {
+        if (browse_dir.has_parent_path() &&
+            browse_dir != browse_dir.root_path()) {
+          browse_dir = browse_dir.parent_path();
+          browse_entries = scan_browse_dir(browse_dir);
+          browse_selected = 0;
+          browse_scroll = 0;
+          cursor_y = -1.0f;
+        }
+      }
+
+      if (IsKeyPressed(KEY_L)) {
+        rom_dir = browse_dir.string();
+        library = scan_rom_folder(rom_dir);
+        selected = 0;
+        scroll = 0;
+        cursor_y = -1.0f;
+        show_toast(toast, "LIBRARY FOLDER SET");
+        state = AppState::Menu;
+        break;
+      }
+
+      const int count = static_cast<int>(browse_entries.size());
+
+      if (count > 0) {
+        if (browse_selected >= count) {
+          browse_selected = count - 1;
+        }
+        if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+          browse_selected = (browse_selected + 1) % count;
+        }
+        if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
+          browse_selected = (browse_selected + count - 1) % count;
+        }
+
+        if (IsKeyPressed(KEY_ENTER)) {
+          const BrowserEntry &e = browse_entries[browse_selected];
+          if (e.is_dir) {
+            browse_dir = e.path;
+            browse_entries = scan_browse_dir(browse_dir);
+            browse_selected = 0;
+            browse_scroll = 0;
+            cursor_y = -1.0f;
+
+            BeginDrawing();
+            ClearBackground(UI_BG);
+            EndDrawing();
+            break;
+
+          } else {
+            start_game(e.path.string());
+            break;
+          }
+        }
+      }
+
+      const int W = GB_WIDTH * SCALE;
+      const int H = GB_HEIGHT * SCALE;
+      const int line_h = 28;
+      const int list_top = 68;
+      const int list_bottom = H - 36;
+      const int visible = (list_bottom - list_top) / line_h;
+
+      if (browse_selected < browse_scroll) {
+        browse_scroll = browse_selected; // (your paste had = browse_scroll)
+      }
+      if (browse_selected >= browse_scroll + visible) {
+        browse_scroll = browse_selected - visible + 1;
+      }
+
+      BeginDrawing();
+      ClearBackground(UI_BG);
+
+      DrawText("OPEN ROM", 20, 14, 20, UI_TEXT);
+      DrawRectangle(0, 44, W, 2, UI_PANEL);
+
+      {
+        // truncate path from the left
+        const std::string full = browse_dir.string();
+        std::string shown = full;
+        while (MeasureText(shown.c_str(), 10) > W - 40 && shown.size() > 4) {
+          shown.erase(0, 1);
+        }
+        if (shown.size() != full.size()) {
+          shown = "..." + shown;
+        }
+        DrawText(shown.c_str(), 20, 52, 10, Fade(UI_TEXT, 0.6f));
+      }
+
+      if (count == 0) {
+        const char *msg = "No GameBoy ROM found!";
+        DrawText(msg, (W - MeasureText(msg, 20)) / 2, H / 2 - 10, 20,
+                 Fade(UI_TEXT, 0.7f));
+      } else {
+        const float target_y = static_cast<float>(
+            list_top + (browse_selected - browse_scroll) * line_h);
+        if (cursor_y < 0.0f) {
+          cursor_y = target_y;
+        }
+        cursor_y += (target_y - cursor_y) * 0.35f;
+
+        DrawRectangleRounded({10.0f, cursor_y, static_cast<float>(W - 26),
+                              static_cast<float>(line_h - 4)},
+                             0.45f, 8, UI_ACCENT);
+
+        const int last = std::min(count, browse_scroll + visible);
+        for (int i = browse_scroll; i < last; ++i) {
+          const int y = list_top + (i - browse_scroll) * line_h + 3;
+          const bool is_selected = (i == browse_selected);
+          const Color col =
+              is_selected
+                  ? UI_BG
+                  : (browse_entries[i].is_dir ? UI_TEXT : Fade(UI_TEXT, 0.7f));
+          DrawText(browse_entries[i].name.c_str(), 24, y, 20, col);
+        }
+
+        if (count > visible) {
+          const float track_h = static_cast<float>(list_bottom - list_top);
+          const float thumb_h = track_h * static_cast<float>(visible) / count;
+          const float thumb_y =
+              list_top + track_h * static_cast<float>(browse_scroll) / count;
+          DrawRectangle(W - 8, list_top, 3, static_cast<int>(track_h),
+                        Fade(UI_PANEL, 0.5f));
+          DrawRectangle(W - 8, static_cast<int>(thumb_y), 3,
+                        static_cast<int>(thumb_h), UI_ACCENT);
+        }
+      }
+
+      DrawRectangle(0, H - 32, W, 2, UI_PANEL);
+      DrawText("ENTER  OPEN    BKSP  UP    L  SET LIBRARY    ESC  BACK", 20,
+               H - 22, 10, UI_ACCENT);
 
       draw_toast(toast);
       EndDrawing();
