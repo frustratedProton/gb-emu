@@ -2,6 +2,19 @@
 
 A DMG (original Game Boy) emulator written in C++ with [raylib](https://www.raylib.com/) for video, audio, and input.
 
+## Screenshots
+
+|                Library                |              Link's Awakening              |       Kirby's Dream Land        |
+| :-----------------------------------: | :----------------------------------------: | :-----------------------------: |
+| ![Library menu](assets/UI.png  )      | ![Link's Awakening](assets/ZELDA.png)      | ![Kirby](assets/KIRBY.png)      |
+
+|               Pokémon Red               |              Tetris               |
+| :-------------------------------------: | :-------------------------------: |
+| ![Pokémon Red](assets/Pokemon_RED.png)  | ![Tetris](assets/TETRIS.png)      |
+
+
+![Pokemon Red Rival Battle](assets/pokemon_red.gif)
+
 ## Features
 
 **Core**
@@ -36,6 +49,8 @@ A DMG (original Game Boy) emulator written in C++ with [raylib](https://www.rayl
 | Tab (hold)        | Fast-forward (4x)   |
 | F5 / F8           | Save / load state   |
 | Esc               | Back to menu / quit |
+| F9                | Screenshot          |
+| L                 | Make folder default |
 
 **Menu:** W/S move, Enter play, O open file browser, Esc quit.
 **Browser:** Enter open, Backspace up one level, L set current folder as library.

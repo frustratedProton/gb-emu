@@ -26,7 +26,7 @@ static std::vector<i16> g_audio_fifo;
 
 static constexpr int SCALE = 3;
 
-static constexpr Color UI_BG = GB_COLORS[3]; 
+static constexpr Color UI_BG = GB_COLORS[3];
 static constexpr Color UI_PANEL = GB_COLORS[2];
 static constexpr Color UI_ACCENT = GB_COLORS[1];
 static constexpr Color UI_TEXT = GB_COLORS[0];
@@ -204,6 +204,27 @@ static std::vector<RomEntry> scan_rom_folder(const std::filesystem::path &dir) {
   return library;
 }
 
+static constexpr const char *CONFIG_PATH = "gbemu.cfg";
+
+static std::string load_rom_dir_config() {
+  std::ifstream file{CONFIG_PATH};
+  std::string line;
+  while (std::getline(file, line)) {
+    if (line.rfind("roms_dir=", 0) == 0) {
+      const std::string dir = line.substr(9);
+      if (!dir.empty() && std::filesystem::is_directory(dir)) {
+        return dir;
+      }
+    }
+  }
+  return "roms";
+}
+
+static void save_rom_dir_config(const std::string &dir) {
+  std::ofstream file{CONFIG_PATH, std::ios::trunc};
+  file << "roms_dir=" << dir << '\n';
+}
+
 struct BrowserEntry {
   std::string name;
   std::filesystem::path path;
@@ -374,6 +395,31 @@ struct Emulator {
   }
 };
 
+static std::string sanitize_for_filename(const std::string &in) {
+  std::string out;
+  for (char c : in) {
+    out += std::isalnum(static_cast<unsigned char>(c)) ? c : '_';
+  }
+  return out;
+}
+
+static std::string next_screenshot_path(const std::string &label) {
+  std::filesystem::create_directories("screenshots");
+
+  const std::time_t t = std::time(nullptr);
+  char ts[32];
+  std::strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", std::localtime(&t));
+
+  const std::string base = "screenshots/" + label + "_" + ts;
+
+  std::filesystem::path p = base + ".png";
+  int n = 1;
+  while (std::filesystem::exists(p)) {
+    p = base + "_" + std::to_string(n++) + ".png";
+  }
+  return p.string();
+}
+
 int main(int argc, char *argv[]) {
   InitWindow(GB_WIDTH * SCALE, GB_HEIGHT * SCALE, "GB Emulator");
 
@@ -397,7 +443,9 @@ int main(int argc, char *argv[]) {
   Toast toast;
   float cursor_y = -1.0f;
 
-  std::string rom_dir = "roms";
+  double last_screenshot = 0.0;
+
+  std::string rom_dir = load_rom_dir_config();
   std::vector<RomEntry> library = scan_rom_folder(rom_dir);
 
   std::filesystem::path browse_dir;
@@ -426,6 +474,21 @@ int main(int argc, char *argv[]) {
   }
 
   while (running && !WindowShouldClose()) {
+    if (IsKeyPressed(KEY_F9) && GetTime() - last_screenshot > 0.3) {
+      last_screenshot = GetTime();
+
+      std::string label = "menu";
+      if (state == AppState::Playing && emu) {
+        label = sanitize_for_filename(header_title_or_fallback(emu->rom_path));
+      } else if (state == AppState::Browse) {
+        label = "browser";
+      }
+
+      const std::string shot = next_screenshot_path(label);
+      TakeScreenshot(shot.c_str());
+      show_toast(toast, "SAVED " + shot.substr(shot.find('/') + 1));
+    }
+
     switch (state) {
 
     case AppState::Menu: {
@@ -640,6 +703,7 @@ int main(int argc, char *argv[]) {
 
       if (IsKeyPressed(KEY_L)) {
         rom_dir = browse_dir.string();
+        save_rom_dir_config(rom_dir);
         library = scan_rom_folder(rom_dir);
         selected = 0;
         scroll = 0;
